@@ -70,20 +70,20 @@ for p_y in range(9):
         set_value_if(a_move, GOLD, p_x, p_y, p_x, p_y-1)
         set_value_if(a_move, GOLD, p_x, p_y, p_x+1, p_y)
         set_value_if(a_move, GOLD, p_x, p_y, p_x, p_y+1)
-    for t_x in range(p_x):
-        set_value_if(a_move, LANCE, p_x, p_y, t_x, p_y)
-    for i in range(1, 9):
-        set_value_if(a_move, ROOK, p_x, p_y, p_x - i, p_y)
-        set_value_if(a_move, ROOK, p_x, p_y, p_x + i, p_y)
-        set_value_if(a_move, ROOK, p_x, p_y, p_x, p_y - i)
-        set_value_if(a_move, ROOK, p_x, p_y, p_x, p_y + i)
-        set_value_if(a_move, BISHOP, p_x, p_y, p_x - i, p_y - i)
-        set_value_if(a_move, BISHOP, p_x, p_y, p_x + i, p_y + i)
-        set_value_if(a_move, BISHOP, p_x, p_y, p_x - i, p_y + i)
-        set_value_if(a_move, BISHOP, p_x, p_y, p_x + i, p_y - i)
+        for t_x in range(p_x):
+            set_value_if(a_move, LANCE, p_x, p_y, t_x, p_y)
+        for i in range(1, 9):
+            set_value_if(a_move, ROOK, p_x, p_y, p_x - i, p_y)
+            set_value_if(a_move, ROOK, p_x, p_y, p_x + i, p_y)
+            set_value_if(a_move, ROOK, p_x, p_y, p_x, p_y - i)
+            set_value_if(a_move, ROOK, p_x, p_y, p_x, p_y + i)
+            set_value_if(a_move, BISHOP, p_x, p_y, p_x - i, p_y - i)
+            set_value_if(a_move, BISHOP, p_x, p_y, p_x + i, p_y + i)
+            set_value_if(a_move, BISHOP, p_x, p_y, p_x - i, p_y + i)
+            set_value_if(a_move, BISHOP, p_x, p_y, p_x + i, p_y - i)
 a_move[PROM_PAWN] = a_move[PROM_LANCE] = a_move[PROM_KNIGHT] = a_move[PROM_SILVER] = a_move[GOLD]
 a_move[PROM_BISHOP] = a_move[BISHOP]
-a_move[PROM_ROOK] = a_move[ROOK, :, :]
+a_move[PROM_ROOK] = a_move[ROOK]
 for p_y in range(9):
     for p_x in range(9):
         for k in [PROM_BISHOP, PROM_ROOK, KING]:
@@ -95,7 +95,7 @@ for p_y in range(9):
             set_value_if(a_move, k, p_x, p_y, p_x+1, p_y-1)
             set_value_if(a_move, k, p_x, p_y, p_x+1, p_y)
             set_value_if(a_move, k, p_x, p_y, p_x+1, p_y+1)
-
+a_oppo_move = torch.flip(a_move[:k_dim, :, :], [1, 2])
 
 a_prom = torch.zeros(Pr_dim, K_dim, K_dim, dtype=torch.bool)
 for k in range(k_dim):
@@ -150,6 +150,7 @@ for p_x in range(9):
                 a_bougai[LANCE, t_x*9+p_y, f_x*9+p_y, p_x*9+p_y] = True
         for f_y in range(p_y):
             for t_y in range(p_y+1, 9):
+                pass
                 a_bougai[ROOK, p_x*9+f_y, p_x*9+t_y, p_x*9+p_y] = True
                 a_bougai[ROOK, p_x*9+t_y, p_x*9+f_y, p_x*9+p_y] = True
 a_bougai[PROM_ROOK, :, :, :] = a_bougai[ROOK, :, :, :]
@@ -229,8 +230,10 @@ def calc_legal_moves_mat(board_black, hand_black, board_white):
     nifu = my_einsum("BKP,KPkT->BkT", board_black, a_nifu)
     bougai = my_einsum("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
     jibougai = my_einsum("BKP,TP->BT", board_black, a_jibougai)
-    total_bougai = (jibougai.unsqueeze(1) + uchibougai + nifu).unsqueeze(2) + bougai
-    ok_to_go = ~total_bougai
+    oute = torch.zeros(board_black.shape[0], K_dim, T_dim, dtype=torch.bool)
+    oute[:, KING, :] = my_einsum("Bkp,kpT,BkpT->BT", board_white, a_oppo_move, ~bougai[:,:k_dim,:,:])
+    total_forbidden = (jibougai.unsqueeze(1) + uchibougai + oute + nifu).unsqueeze(2) + bougai
+    ok_to_go = ~total_forbidden
 
     legal_moves_mat = my_einsum("BKFTp,BKFT->BKFTp", ok_to_move, ok_to_go)
 
@@ -242,15 +245,17 @@ def test_legal_moves(board):
 
     my = sorted(action_mat_2_usi(ok_mat)[0])
     std = board.legal_moves
-    #if len(my) != len(std):
+    diff = [_ for _ in std if _.usi() not in set(my)]
+    diff2 = [m for m in my if m not in set(_.usi() for _ in std)]
+    #if len(diff) != 0 or len(diff2) != 0:
     print(len(my), len(std), my)
-    std = [_ for _ in std if _.usi() not in set(my)]
-    print(len(std), sorted([_.usi()+board.piece_at(_.from_square).japanese_symbol() if _.from_square is not None else (_.usi()+shogi.PIECE_JAPANESE_SYMBOLS[_.drop_piece_type]) for _ in std]))
+    print(sorted([_.usi()+board.piece_at(_.from_square).japanese_symbol() if _.from_square is not None else (_.usi()+shogi.PIECE_JAPANESE_SYMBOLS[_.drop_piece_type]) for _ in diff]))
+    print(sorted(diff2))
 
     
 kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
 board = shogi.Board()
-for _ in range(20):#len(kif)):
+for _ in range(40):#len(kif)):
     board.push(shogi.Move.from_usi(kif[_]))
 if _ % 2 == 1:
     print(board.kif_str())
