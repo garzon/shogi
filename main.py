@@ -83,7 +83,7 @@ for p_y in range(9):
         set_value_if(a_move, BISHOP, p_x, p_y, p_x + i, p_y - i)
 a_move[PROM_PAWN] = a_move[PROM_LANCE] = a_move[PROM_KNIGHT] = a_move[PROM_SILVER] = a_move[GOLD]
 a_move[PROM_BISHOP] = a_move[BISHOP]
-a_move[PROM_ROOK] = a_move[ROOK]
+a_move[PROM_ROOK] = a_move[ROOK, :, :]
 for p_y in range(9):
     for p_x in range(9):
         for k in [PROM_BISHOP, PROM_ROOK, KING]:
@@ -250,7 +250,7 @@ def test_legal_moves(board):
     
 kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
 board = shogi.Board()
-for _ in range(40):#len(kif)):
+for _ in range(20):#len(kif)):
     board.push(shogi.Move.from_usi(kif[_]))
 if _ % 2 == 1:
     print(board.kif_str())
