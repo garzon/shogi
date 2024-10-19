@@ -118,6 +118,7 @@ for p_x in range(9):
                 a_bougai[ROOK, f_x*9+p_y, t_x*9+p_y, p_x*9+p_y] = True
                 a_bougai[ROOK, t_x*9+p_y, f_x*9+p_y, p_x*9+p_y] = True
                 a_bougai[LANCE, t_x*9+p_y, f_x*9+p_y, p_x*9+p_y] = True
+                a_bougai[LANCE, f_x*9+p_y, t_x*9+p_y, p_x*9+p_y] = True  # necessary for bougai of a_oppo_move
         for f_y in range(p_y):
             for t_y in range(p_y+1, 9):
                 pass

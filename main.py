@@ -39,32 +39,35 @@ def calc_legal_moves_mat(board_black, hand_black, board_white):
     uchibougai = my_einsum("BKP,kTP->BkT", board_sum, a_uchibougai)
     nifu = my_einsum("BKP,KPkT->BkT", board_black, a_nifu)
     bougai = my_einsum("BKP,kFTP->BkFT", board_sum, a_bougai)
-    bougai = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool)), dim=1)
+    bougai_Kdim = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool)), dim=1)
     jibougai = my_einsum("BKP,TP->BT", board_black, a_jibougai)
     
     board_pieces = my_einsum("BKP->BP", board_sum)
     board_if_moved = my_einsum("BP,PF->BPF", board_pieces, ~torch.eye(P_dim, dtype=torch.bool))
-    board_if_moved = board_if_moved.unsqueeze(3) + a_add_piece.unsqueeze(0)
+    board_if_moved = board_if_moved.unsqueeze(3).expand(-1, -1, -1, T_dim) + a_add_piece.unsqueeze(0)
     
     
     king_pos = board_black[:, KING, :].squeeze(1)
-    #bougai_to_king = my_einsum("Bt,kftP,BPFT->BkfFT", king_pos, a_bougai, board_if_moved)
-    white_if_moved = my_einsum("BKP,PT->BKPT", board_white, ~torch.eye(P_dim, dtype=torch.bool))
-    #white_attack_king = my_einsum("BKPT,KPt,Bt,BKPFT->BFT", white_if_moved, a_oppo_move, king_pos, ~bougai_to_king)
+    #white_attack_king = my_einsum("BKF,KFt,Bt,BKFt->BF", board_white, a_oppo_move, king_pos, ~bougai)
+    #bougai_pos = my_einsum("BKF,BF,Bt,KFtT->BT", board_white, a_oppo_move, king_pos, a_bougai)
     
-    bougai_to_king_if_king_moved = my_einsum("kfTP,BPFT->BkfFT", a_bougai, board_if_moved)
-    white_attack_king_if_king_moved = my_einsum("BKPT,KPT,BKPFT->BFT", white_if_moved, a_oppo_move, ~bougai_to_king_if_king_moved)
+    white_if_moved = my_einsum("BKP,PT->BKPT", board_white, ~torch.eye(P_dim, dtype=torch.bool))
+    bougai_to_king = my_einsum("Bt,kftP->BkfP", king_pos, a_bougai)
+    bougai_to_king = my_einsum("BkfT,BkfP,BPFT->BfFT", white_if_moved, bougai_to_king, board_if_moved)
+    white_attack_without_bougai = my_einsum("BKPT,KPt,Bt->BPT", white_if_moved, a_oppo_move, king_pos)
+    white_attack_king = my_einsum("BPT,BPFT->BFT", white_attack_without_bougai, ~bougai_to_king)
+    
+    bougai_to_king_if_king_moved = my_einsum("kfTP,BPFT,BkfT->BfFT", a_bougai, board_if_moved, white_if_moved)
+    white_attack_king_if_king_moved = my_einsum("BKPT,KPT,BPFT->BFT", white_if_moved, a_oppo_move, ~bougai_to_king_if_king_moved)
     
     oute = torch.zeros(K_dim, board_black.shape[0], F_dim, T_dim, dtype=torch.bool)
-    #oute[:] = white_attack_king
+    oute[:] = white_attack_king
     oute[KING] = white_attack_king_if_king_moved
     oute = torch.permute(oute, (1, 0, 2, 3)).contiguous()
     
-    total_forbidden = (jibougai.unsqueeze(1) + uchibougai + nifu).unsqueeze(2) + bougai + oute
-    ok_to_go = ~total_forbidden
+    total_forbidden = (jibougai.unsqueeze(1) + uchibougai + nifu).unsqueeze(2) + bougai_Kdim + oute
 
-    legal_moves_mat = my_einsum("BKFTp,BKFT->BKFTp", ok_to_move, ok_to_go)
-
+    legal_moves_mat = my_einsum("BKFTp,BKFT->BKFTp", ok_to_move, ~total_forbidden)
     return legal_moves_mat
     
 def test_legal_moves(board, mat, is_white):
@@ -85,7 +88,7 @@ def test_legal_moves(board, mat, is_white):
 kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
 board = shogi.Board()
 step = -1
-for step in range(38):
+for step in range(80):
     board.push(shogi.Move.from_usi(kif[step]))
 step += 1
 
@@ -93,7 +96,7 @@ board_black, hand_black, board_white, hand_white = board_2_mat(board, step % 2 !
 while step < len(kif):
     is_white = step % 2 != 0
     print(step)
-    print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
+    #print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
     print('----------------')
     usi_move = kif[step]
     A = get_action_mat([usi_2_act_id(usi_move, is_white)])
