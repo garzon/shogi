@@ -3,43 +3,8 @@ import shogi
 import numpy
 import shogi.KIF
 
-PIECE_TYPES = [
-    PAWN,
-    LANCE,
-    KNIGHT,
-    SILVER,
-    GOLD,
-    BISHOP,
-    ROOK,
-    KING,
-] = range(8)
-PROM_PIECE_TYPES = [
-    PROM_PAWN,
-    PROM_LANCE,
-    PROM_KNIGHT,
-    PROM_SILVER,
-    PROM_BISHOP,
-    PROM_ROOK,
-] = range(8, 14)
-HAND_PIECE_TYPES = [
-    HAND_PAWN,
-    HAND_LANCE,
-    HAND_KNIGHT,
-    HAND_SILVER,
-    HAND_GOLD,
-    HAND_BISHOP,
-    HAND_ROOK,
-] = range(14, 21)
-k_dim = len(PIECE_TYPES) + len(PROM_PIECE_TYPES)
-K_dim = k_dim + len(HAND_PIECE_TYPES)
 
-Pr_dim = 2
-P_dim = 9*9
-F_dim = 9*9
-T_dim = 9*9
-
-
-###############################################################
+from constants import *
 
 a_left = torch.ones(K_dim, 9, 9, dtype=torch.bool)
 a_left[PAWN, 0, :] = False
@@ -160,77 +125,74 @@ a_uchibougai = torch.zeros(K_dim, T_dim, P_dim, dtype=torch.bool)
 for k in HAND_PIECE_TYPES:
     for t in range(T_dim):
         a_uchibougai[k, t, t] = True
-
-def get_action_mat(act_ids):
-    A = torch.zeros(len(act_ids), K_dim, F_dim, T_dim, Pr_dim, dtype=torch.bool)
-    for ind, act_id in enumerate(act_ids):
-        # F * T * prom (13112) + HAND_PIECE_TYPES * T (567)
-        if act_id < 567:
-            piece_type = act_id // 81
-            t = act_id % 81
-            f = 80
-            prom = 0
-            A[ind, piece_type + k_dim, f, t, prom] = True
-        else:
-            act_id -= 567
-            f = act_id // 81 // 2
-            t = act_id // 2 % 81
-            prom = act_id % 2
-            A[ind, :, f, t, prom] = True
-    return A
-
-def action_mat_2_usi(A):
-    ret = []
-    for B in range(A.shape[0]):
-        temp = []
-        for (K, F, T, Pr) in A[B].to_sparse().indices().transpose(0, 1):
-            K, F, T, Pr = map(lambda x: x.item(), [K, F, T, Pr])
-            if K < k_dim:
-                temp.append(shogi.SQUARE_NAMES[F]+shogi.SQUARE_NAMES[T]+("+" if Pr == 1 else ""))
-                continue
-            temp.append(shogi.PIECE_SYMBOLS[K-k_dim+1].upper()+"*"+shogi.SQUARE_NAMES[T])
-        ret.append(temp)
-    return ret
-            
-
-def board_2_mat(board):
-    board_black = torch.zeros(1, k_dim, F_dim, dtype=torch.bool)
-    board_white = torch.zeros(1, k_dim, F_dim, dtype=torch.bool)
-    hand_black = torch.zeros(1, K_dim - k_dim, F_dim, dtype=torch.bool)
-    hand_white = torch.zeros(1, K_dim - k_dim, F_dim, dtype=torch.bool)
-    for f in range(F_dim):
-        piece = board.piece_at(f)
-        if piece is None: continue
-        k = piece.piece_type - 1
-        if piece.color == shogi.BLACK:
-            board_black[0, k, f] = True
-        else:
-            board_white[0, k, f] = True
-    for k in HAND_PIECE_TYPES:
-        k_id = k - k_dim + 1
-        for _ in range(board.pieces_in_hand[shogi.BLACK][k_id]):
-            hand_black[0, k_id-1, 80-_] = True
-        for _ in range(board.pieces_in_hand[shogi.WHITE][k_id]):
-            hand_white[0, k_id-1, 80-_] = True
-    return board_black, hand_black, board_white, hand_white
+    
+from io_utils import *
     
 def my_einsum(eq, *args):
-    #args = tuple(map(lambda _: (_ > 0).type(torch.uint8), args))
-    #print([arg.dtype for arg in args])
-    ret = torch.from_numpy(numpy.einsum(eq, *args) > 0)
-    return ret
+    return torch.from_numpy(numpy.einsum(eq, *args) > 0)
 
-#a_move, a_prom, a_prom_able, a_left, a_bougai, a_jibougai, a_uchibougai = tuple(map(lambda _: _.type(torch.uint8), [a_move, a_prom, a_prom_able, a_left, a_bougai, a_jibougai, a_uchibougai]))
+a_use_piece = torch.zeros(K_dim, K_dim-k_dim, F_dim, T_dim, dtype=torch.bool)
+a_take_piece = torch.zeros(K_dim-k_dim, K_dim-k_dim, F_dim, T_dim, dtype=torch.bool)
+a_captured = torch.zeros(k_dim, K_dim-k_dim, dtype=torch.bool)
+for k in range(k_dim):
+    a_use_piece[k, :] = torch.eye(F_dim, dtype=torch.bool)
+for k in HAND_PIECE_TYPES:
+    for k_p in range(K_dim-k_dim):
+        if k-k_dim != k_p:
+            a_use_piece[k, k_p] = torch.eye(F_dim, dtype=torch.bool)
+        else:
+            for p in range(1, T_dim):
+                a_use_piece[k, k_p, p-1, p] = True
+for k in range(k_dim):
+    k_t = k-len(PIECE_TYPES) if k in PROM_PIECE_TYPES else k
+    if k_t != KING: a_captured[k, k_t] = True
+for k_t in range(K_dim-k_dim):
+    for k_p in range(K_dim-k_dim):
+        if k_t != k_p:
+            a_take_piece[k_t, k_p] = torch.eye(F_dim, dtype=torch.bool)
+        else:
+            for p in range(1, T_dim):
+                a_take_piece[k_p, k_p, p, p-1] = True
+    
+def invert_order(board_black, hand_black, board_white, hand_white):
+    return rotate_180deg(board_white), hand_white, rotate_180deg(board_black), hand_black
+
+def apply_action_mat(board_black, hand_black, board_white, hand_white, A):
+    # optimizations for tensor A by splitting it into tensors with lower dim
+    BT = my_einsum("BxyTz->BT", A)
+    BKF = my_einsum("BKFxy->BKF", A)
+    
+    S_black = torch.cat((board_black, hand_black), dim=1)
+    after_removing = S_black ^ (S_black & BKF)
+    after_removing_board_black, after_removing_hand_black = torch.split(after_removing, [k_dim, K_dim-k_dim], dim=1)
+    after_removing_hand_black = my_einsum("BkF,KkFT,BKx->BkT", after_removing_hand_black, a_use_piece, BKF)
+    #print(after_removing_hand_black.to_sparse())
+    
+    new_board_black = after_removing_board_black + my_einsum("BkF,BkFTp,pkK->BKT", S_black, A, a_prom[:,:,:k_dim])
+    captured_piece = my_einsum("BKT,BT,Kk->Bk", board_white, BT, a_captured)
+    if_captured = my_einsum("Bk->B", captured_piece)
+    new_hand_black_if_captured = my_einsum("BKF,Bk,kKFT->BKT", after_removing_hand_black, captured_piece, a_take_piece) + torch.cat((torch.zeros(captured_piece.shape[0], captured_piece.shape[1], 80, dtype=torch.bool), captured_piece.unsqueeze(2)), dim=2)
+    new_hand_black = ~if_captured * after_removing_hand_black + if_captured * new_hand_black_if_captured
+    new_board_white = board_white ^ my_einsum("BKT,BT->BKT", board_white, BT)
+    #print(new_hand_black.to_sparse())
+    
+    #TODO: uchifu-tsumi, open_oute
+    #bougai_after = my_einsum("BKP,kFTP->BkFT", new_board_black + new_board_white, a_bougai)
+    
+    return invert_order(new_board_black, new_hand_black, new_board_white, hand_white)
+    
+
 def calc_legal_moves_mat(board_black, hand_black, board_white):
     S_black = torch.cat((board_black, hand_black), dim=1)
     
     ok_to_move = my_einsum("BKF,KFT,pKk,pFT,kT->BKFTp", S_black, a_move, a_prom, a_prom_able, a_left)
-
+    
     uchibougai = my_einsum("BKP,kTP->BkT", board_black + board_white, a_uchibougai)
     nifu = my_einsum("BKP,KPkT->BkT", board_black, a_nifu)
     bougai = my_einsum("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
     jibougai = my_einsum("BKP,TP->BT", board_black, a_jibougai)
     oute = torch.zeros(board_black.shape[0], K_dim, T_dim, dtype=torch.bool)
+    # bug: update bougai by removing black KING
     oute[:, KING, :] = my_einsum("Bkp,kpT,BkpT->BT", board_white, a_oppo_move, ~bougai[:,:k_dim,:,:])
     total_forbidden = (jibougai.unsqueeze(1) + uchibougai + oute + nifu).unsqueeze(2) + bougai
     ok_to_go = ~total_forbidden
@@ -239,24 +201,41 @@ def calc_legal_moves_mat(board_black, hand_black, board_white):
 
     return legal_moves_mat
     
-def test_legal_moves(board):
-    board_black, hand_black, board_white, hand_white = board_2_mat(board)
-    ok_mat = calc_legal_moves_mat(board_black, hand_black, board_white)
+def test_legal_moves(board, mat, is_white):
+    ok_mat = calc_legal_moves_mat(mat[0], mat[1], mat[2])
 
-    my = sorted(action_mat_2_usi(ok_mat)[0])
+    my = sorted(action_mat_2_usi(ok_mat, is_white)[0])
     std = board.legal_moves
     diff = [_ for _ in std if _.usi() not in set(my)]
     diff2 = [m for m in my if m not in set(_.usi() for _ in std)]
-    #if len(diff) != 0 or len(diff2) != 0:
-    print(len(my), len(std), my)
-    print(sorted([_.usi()+board.piece_at(_.from_square).japanese_symbol() if _.from_square is not None else (_.usi()+shogi.PIECE_JAPANESE_SYMBOLS[_.drop_piece_type]) for _ in diff]))
-    print(sorted(diff2))
+    if len(diff) != 0 or len(diff2) != 0:
+        print(len(my), len(std), my)
+        print(sorted([_.usi()+board.piece_at(_.from_square).japanese_symbol() if _.from_square is not None else (_.usi()+shogi.PIECE_JAPANESE_SYMBOLS[_.drop_piece_type]) for _ in diff]))
+        print(sorted(diff2))
+        return False
+    return True
 
     
 kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
 board = shogi.Board()
-for _ in range(40):#len(kif)):
-    board.push(shogi.Move.from_usi(kif[_]))
-if _ % 2 == 1:
-    print(board.kif_str())
-    test_legal_moves(board)
+board_black, hand_black, board_white, hand_white = board_2_mat(board)
+for step in range(len(kif)):
+    is_white = step % 2 != 0
+    print(step)
+    print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
+    print('----------------')
+    usi_move = kif[step]
+    A = get_action_mat([usi_2_act_id(usi_move, is_white)])
+    debug_usi = action_mat_2_usi(A, is_white)
+    if len(debug_usi[0]) != 1 or usi_move not in debug_usi[0]:
+        print(step, board.kif_str())
+        print(debug_usi, usi_move)
+        raise 'action mat conversion error'
+    
+    if not test_legal_moves(board, (board_black, hand_black, board_white), is_white):
+        print(step, board.kif_str())
+        print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
+        raise 'legal moves not matched'
+    
+    board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A)
+    board.push(shogi.Move.from_usi(usi_move))
