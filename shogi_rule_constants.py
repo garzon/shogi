@@ -145,9 +145,15 @@ for k in HAND_PIECE_TYPES:
         else:
             for p in range(1, T_dim):
                 a_use_piece[k, k_p, p-1, p] = True
-for k in range(k_dim):
-    k_t = k-len(PIECE_TYPES) if k in PROM_PIECE_TYPES else k
-    if k_t != KING: a_captured[k, k_t] = True
+for k in PIECE_TYPES:
+    if k != KING:
+        a_captured[k, k] = True
+a_captured[PROM_BISHOP, BISHOP] = True
+a_captured[PROM_ROOK, ROOK] = True
+a_captured[PROM_PAWN, PAWN] = True
+a_captured[PROM_LANCE, LANCE] = True
+a_captured[PROM_KNIGHT, KNIGHT] = True
+a_captured[PROM_SILVER, SILVER] = True
 for k_t in range(K_dim-k_dim):
     for k_p in range(K_dim-k_dim):
         if k_t != k_p:

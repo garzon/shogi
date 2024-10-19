@@ -88,7 +88,7 @@ def test_legal_moves(board, mat, is_white):
 kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
 board = shogi.Board()
 step = -1
-for step in range(80):
+for step in range(0):
     board.push(shogi.Move.from_usi(kif[step]))
 step += 1
 
@@ -96,7 +96,7 @@ board_black, hand_black, board_white, hand_white = board_2_mat(board, step % 2 !
 while step < len(kif):
     is_white = step % 2 != 0
     print(step)
-    #print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
+    print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
     print('----------------')
     usi_move = kif[step]
     A = get_action_mat([usi_2_act_id(usi_move, is_white)])
