@@ -6,11 +6,7 @@ import shogi.KIF
 from shogi_rule_constants import *
 from io_utils import *
     
-def my_einsum(eq, *args):
-    return torch.from_numpy(numpy.einsum(eq, *args) > 0)
     
-def invert_order(board_black, hand_black, board_white, hand_white):
-    return rotate_180deg(board_white), hand_white, rotate_180deg(board_black), hand_black
 
 def apply_action_mat(board_black, hand_black, board_white, hand_white, A):
     # optimizations for tensor A by splitting it into tensors with lower dim
@@ -29,25 +25,42 @@ def apply_action_mat(board_black, hand_black, board_white, hand_white, A):
     new_hand_black = ~if_captured * after_removing_hand_black + if_captured * new_hand_black_if_captured
     new_board_white = board_white ^ my_einsum("BKT,BT->BKT", board_white, BT)
     
-    #TODO: uchifu-tsumi, open_oute
-    #bougai_after = my_einsum("BKP,kFTP->BkFT", new_board_black + new_board_white, a_bougai)
+    #TODO: uchifu-tsumi
     
     return invert_order(new_board_black, new_hand_black, new_board_white, hand_white)
     
 
 def calc_legal_moves_mat(board_black, hand_black, board_white):
     S_black = torch.cat((board_black, hand_black), dim=1)
+    board_sum = board_black + board_white
     
-    ok_to_move = my_einsum("BKF,KFT,pKk,pFT,kT->BKFTp", S_black, a_move, a_prom, a_prom_able, a_left)
+    ok_to_move = my_einsum("BKF,KFTp->BKFTp", S_black, a_movable)
     
-    uchibougai = my_einsum("BKP,kTP->BkT", board_black + board_white, a_uchibougai)
+    uchibougai = my_einsum("BKP,kTP->BkT", board_sum, a_uchibougai)
     nifu = my_einsum("BKP,KPkT->BkT", board_black, a_nifu)
-    bougai = my_einsum("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
+    bougai = my_einsum("BKP,kFTP->BkFT", board_sum, a_bougai)
+    bougai = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool)), dim=1)
     jibougai = my_einsum("BKP,TP->BT", board_black, a_jibougai)
-    oute = torch.zeros(board_black.shape[0], K_dim, T_dim, dtype=torch.bool)
-    # bug: update bougai by removing black KING
-    oute[:, KING, :] = my_einsum("Bkp,kpT,BkpT->BT", board_white, a_oppo_move, ~bougai[:,:k_dim,:,:])
-    total_forbidden = (jibougai.unsqueeze(1) + uchibougai + oute + nifu).unsqueeze(2) + bougai
+    
+    board_pieces = my_einsum("BKP->BP", board_sum)
+    board_if_moved = my_einsum("BP,PF->BPF", board_pieces, ~torch.eye(P_dim, dtype=torch.bool))
+    board_if_moved = board_if_moved.unsqueeze(3) + a_add_piece.unsqueeze(0)
+    
+    
+    king_pos = board_black[:, KING, :].squeeze(1)
+    #bougai_to_king = my_einsum("Bt,kftP,BPFT->BkfFT", king_pos, a_bougai, board_if_moved)
+    white_if_moved = my_einsum("BKP,PT->BKPT", board_white, ~torch.eye(P_dim, dtype=torch.bool))
+    #white_attack_king = my_einsum("BKPT,KPt,Bt,BKPFT->BFT", white_if_moved, a_oppo_move, king_pos, ~bougai_to_king)
+    
+    bougai_to_king_if_king_moved = my_einsum("kfTP,BPFT->BkfFT", a_bougai, board_if_moved)
+    white_attack_king_if_king_moved = my_einsum("BKPT,KPT,BKPFT->BFT", white_if_moved, a_oppo_move, ~bougai_to_king_if_king_moved)
+    
+    oute = torch.zeros(K_dim, board_black.shape[0], F_dim, T_dim, dtype=torch.bool)
+    #oute[:] = white_attack_king
+    oute[KING] = white_attack_king_if_king_moved
+    oute = torch.permute(oute, (1, 0, 2, 3)).contiguous()
+    
+    total_forbidden = (jibougai.unsqueeze(1) + uchibougai + nifu).unsqueeze(2) + bougai + oute
     ok_to_go = ~total_forbidden
 
     legal_moves_mat = my_einsum("BKFTp,BKFT->BKFTp", ok_to_move, ok_to_go)
@@ -71,8 +84,13 @@ def test_legal_moves(board, mat, is_white):
     
 kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
 board = shogi.Board()
-board_black, hand_black, board_white, hand_white = board_2_mat(board)
-for step in range(len(kif)):
+step = -1
+for step in range(38):
+    board.push(shogi.Move.from_usi(kif[step]))
+step += 1
+
+board_black, hand_black, board_white, hand_white = board_2_mat(board, step % 2 != 0)
+while step < len(kif):
     is_white = step % 2 != 0
     print(step)
     print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
@@ -92,3 +110,4 @@ for step in range(len(kif)):
     
     board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A)
     board.push(shogi.Move.from_usi(usi_move))
+    step += 1

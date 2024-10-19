@@ -1,6 +1,10 @@
 import torch
+import numpy
 
 from constants import *
+
+def my_einsum(eq, *args):
+    return torch.from_numpy(numpy.einsum(eq, *args) > 0)
 
 
 a_left = torch.ones(K_dim, 9, 9, dtype=torch.bool)
@@ -59,7 +63,7 @@ for p_y in range(9):
             set_value_if(a_move, k, p_x, p_y, p_x+1, p_y)
             set_value_if(a_move, k, p_x, p_y, p_x+1, p_y+1)
 a_oppo_move = torch.flip(a_move[:k_dim, :, :], [1, 2])
-
+del set_value_if
 
 a_prom = torch.zeros(Pr_dim, K_dim, K_dim, dtype=torch.bool)
 for k in range(k_dim):
@@ -80,8 +84,11 @@ for p_x in range(3):
     a_prom_able[1, :, :, p_x, :] = True
 a_prom_able = a_prom_able.reshape(Pr_dim, F_dim, T_dim)
 
+# constant tensors describing the rule of movements
+a_movable =  my_einsum("KFT,pKk,pFT,kT->KFTp", a_move, a_prom, a_prom_able, a_left)
 
-a_bougai = torch.zeros(K_dim, F_dim, T_dim, P_dim, dtype=torch.bool)
+# constant tensors describing the forbidden moves
+a_bougai = torch.zeros(k_dim, F_dim, T_dim, P_dim, dtype=torch.bool)
 a_nifu = torch.zeros(k_dim, P_dim, K_dim, T_dim, dtype=torch.bool)
 for p_x in range(9):
     for p_y in range(9):
@@ -124,7 +131,7 @@ for k in HAND_PIECE_TYPES:
     for t in range(T_dim):
         a_uchibougai[k, t, t] = True
 
-
+# constant tensors which update hand by shifting if needed
 a_use_piece = torch.zeros(K_dim, K_dim-k_dim, F_dim, T_dim, dtype=torch.bool)
 a_take_piece = torch.zeros(K_dim-k_dim, K_dim-k_dim, F_dim, T_dim, dtype=torch.bool)
 a_captured = torch.zeros(k_dim, K_dim-k_dim, dtype=torch.bool)
@@ -147,3 +154,7 @@ for k_t in range(K_dim-k_dim):
         else:
             for p in range(1, T_dim):
                 a_take_piece[k_p, k_p, p, p-1] = True
+
+a_add_piece = torch.zeros(F_dim, P_dim, T_dim, dtype=torch.bool)
+a_add_piece[:] = torch.eye(P_dim, dtype=torch.bool)
+a_add_piece = torch.permute(a_add_piece, (1, 0, 2)).contiguous()

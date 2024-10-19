@@ -5,6 +5,9 @@ from constants import *
 
 def rotate_180deg(arg):
     return torch.flip(arg, [2])
+    
+def invert_order(board_black, hand_black, board_white, hand_white):
+    return rotate_180deg(board_white), hand_white, rotate_180deg(board_black), hand_black
 
 def usi_2_act_id(usi, is_white):
     prom = 1 if len(usi) == 5 else 0
@@ -77,7 +80,7 @@ def mat_2_boards(board_black, hand_black, board_white, hand_white, is_white):
         boards.append(board)
     return boards
 
-def board_2_mat(board, is_white=False):
+def board_2_mat(board, is_white):
     board_black = torch.zeros(1, k_dim, F_dim, dtype=torch.bool)
     board_white = torch.zeros(1, k_dim, F_dim, dtype=torch.bool)
     hand_black = torch.zeros(1, K_dim - k_dim, F_dim, dtype=torch.bool)
