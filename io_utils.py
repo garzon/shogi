@@ -169,6 +169,26 @@ def board_2_features(board, is_white):
     mat = board_2_mat(board, board.turn == shogi.WHITE)
     mat = torch.cat(mat, dim=1)[0].reshape(-1, 9, 9)
     return mat
+    
+def board_2_features2(board, is_white):
+    board_black, hand_black, board_white, hand_white = map(lambda _:_.squeeze(0).to('cuda'), board_2_mat(board, board.turn == shogi.WHITE))
+    
+    bougai = my_einsum2("KP,kFTP->kFT", board_black + board_white, a_bougai)
+    
+    board_black_attack = my_einsum2("kF,kFT,kFT->kT", board_black, a_move[:k_dim], ~bougai).to('cpu', dtype=torch.bool)
+    board_white_attack = my_einsum2("kF,kFT,kFT->kT", board_white, a_oppo_move[:k_dim], ~bougai).to('cpu', dtype=torch.bool)
+    
+    mat = torch.cat((board_black.to('cpu', dtype=torch.bool), hand_black.to('cpu', dtype=torch.bool), board_white.to('cpu', dtype=torch.bool), hand_white.to('cpu', dtype=torch.bool), board_black_attack, board_white_attack), dim=0).reshape(-1, 9, 9)
+    return mat
+    
+def boards_2_features(boards, is_white, func=board_2_features2):
+    feature = func(boards[0], is_white)
+    features = torch.zeros(len(boards), feature.shape[0], 9, 9, dtype=torch.bool)
+    features[0] = feature
+    for f_id in range(1, len(boards)):
+        features[f_id] = func(boards[f_id], is_white)
+    return features.to('cuda', dtype=torch.float32)
+    
 
 def boltzmann(logits, temperature):
     logits /= temperature

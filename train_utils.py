@@ -6,18 +6,18 @@ import random
 from io_utils import *
 
 BASE_FILE_PATH = "D:\\github\\pydlshogi\\"
-def read_kifu(kifu_list_file="kifu.txt", num=200):
+def read_kifu(kifu_list_file="kifu.txt", num=1000):
     positions = []
     with open(BASE_FILE_PATH+kifu_list_file, 'r') as f:
         for idx, line in enumerate(f.readlines()):
-            if idx % 100 == 0: print(idx)
+            if idx % 10 == 0: print(idx)
             if idx >= num: return positions
             filepath = BASE_FILE_PATH+line.rstrip('\r\n')
             kifu = shogi.CSA.Parser.parse_file(filepath)[0]
             win_color = shogi.BLACK if kifu['win'] == 'b' else shogi.WHITE
             board = shogi.Board()
             for step, move in enumerate(kifu['moves']):
-                mat = board_2_features(board, board.turn == shogi.WHITE)
+                mat = board_2_features2(board, board.turn == shogi.WHITE)
                 
                 move_label = usi_2_act_id(move, board.turn == shogi.WHITE)
                 
@@ -29,7 +29,7 @@ def read_kifu(kifu_list_file="kifu.txt", num=200):
                 board.push_usi(move)
     return positions
     
-def mini_batch(positions, batchsize=3, cons_size=3, device=torch.device("cuda")):
+def mini_batch(positions, batchsize=20, cons_size=4, device=torch.device("cuda")):
     mini_batch_data = []
     mini_batch_move = []
     mini_batch_win = []
@@ -46,7 +46,7 @@ def mini_batch(positions, batchsize=3, cons_size=3, device=torch.device("cuda"))
         torch.tensor(mini_batch_win, dtype=torch.float32, device=device).reshape((-1, 1)),
     )
     
-TRAIN_PICKLE = 'output/train_list.ckpt'
+TRAIN_PICKLE = 'output/train_list_feature2.ckpt'
 if __name__ == '__main__':
     positions = read_kifu()
     print(len(positions))

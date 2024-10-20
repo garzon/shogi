@@ -50,24 +50,22 @@ def calc_legal_moves_mat(board_black, hand_black, board_white):
     board_if_moved = my_einsum("BP,PF->BPF", board_pieces, ~torch.eye(P_dim, dtype=torch.bool))
     board_if_moved = board_if_moved.unsqueeze(3).expand(-1, -1, -1, T_dim) + a_add_piece.unsqueeze(0)
     
-    
+    # --- calculate oute[]
     king_pos = board_black[:, KING, :].squeeze(1)
-    #white_attack_king = my_einsum("BKF,KFt,Bt,BKFt->BF", board_white, a_oppo_move, king_pos, ~bougai)
-    #bougai_pos = my_einsum("BKF,BF,Bt,KFtT->BT", board_white, a_oppo_move, king_pos, a_bougai)
+    white_if_moved = my_einsum2("BKP,PT->BKPT", board_white, ~torch.eye(P_dim, dtype=torch.bool))
+    bougai_to_king = my_einsum2("Bt,kftP->BkfP", king_pos, a_bougai)
+    bougai_to_king = my_einsum2("BkfT,BkfP,BPFT->BfFT", white_if_moved, bougai_to_king, board_if_moved)
+    white_attack_without_bougai = my_einsum2("BKPT,KPt,Bt->BPT", white_if_moved, a_oppo_move, king_pos)
+    white_attack_king = my_einsum2("BPT,BPFT->BFT", white_attack_without_bougai, ~bougai_to_king)
     
-    white_if_moved = my_einsum("BKP,PT->BKPT", board_white, ~torch.eye(P_dim, dtype=torch.bool))
-    bougai_to_king = my_einsum("Bt,kftP->BkfP", king_pos, a_bougai)
-    bougai_to_king = my_einsum("BkfT,BkfP,BPFT->BfFT", white_if_moved, bougai_to_king, board_if_moved)
-    white_attack_without_bougai = my_einsum("BKPT,KPt,Bt->BPT", white_if_moved, a_oppo_move, king_pos)
-    white_attack_king = my_einsum("BPT,BPFT->BFT", white_attack_without_bougai, ~bougai_to_king)
-    
-    bougai_to_king_if_king_moved = my_einsum("kfTP,BPFT,BkfT->BfFT", a_bougai, board_if_moved, white_if_moved)
-    white_attack_king_if_king_moved = my_einsum("BKPT,KPT,BPFT->BFT", white_if_moved, a_oppo_move, ~bougai_to_king_if_king_moved)
+    bougai_to_king_if_king_moved = my_einsum2("kfTP,BPFT,BkfT->BfFT", a_bougai, board_if_moved, white_if_moved)
+    white_attack_king_if_king_moved = my_einsum2("BKPT,KPT,BPFT->BFT", white_if_moved, a_oppo_move, ~bougai_to_king_if_king_moved)
     
     oute = torch.zeros(K_dim, board_black.shape[0], F_dim, T_dim, dtype=torch.bool)
-    oute[:] = white_attack_king
-    oute[KING] = white_attack_king_if_king_moved
+    oute[:] = (white_attack_king != 0).to('cpu')
+    oute[KING] = (white_attack_king_if_king_moved != 0).to('cpu')
     oute = torch.permute(oute, (1, 0, 2, 3)).contiguous()
+    # -----------------
     
     total_forbidden = (jibougai.unsqueeze(1) + uchibougai + nifu).unsqueeze(2) + bougai_Kdim + oute
 

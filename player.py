@@ -47,14 +47,14 @@ class PolicyPlayer(BasePlayer):
             print('bestmove resign')
             return
 
-        x = board_2_features(self.board, self.board.turn == shogi.WHITE).to('cuda', dtype=torch.float32).unsqueeze(0)
-        print('info string', x.shape)
+        x = boards_2_features([self.board], self.board.turn == shogi.WHITE, func=board_2_features)
 
         with torch.no_grad():
             policy_outputs, value_outputs = self.model(x)
-            print('info string', policy_outputs.shape, value_outputs.shape)
             logits = policy_outputs[0]
-            print('info score cp', max(-29000, min(29000, int(value_outputs[0][0]*50000-25000))))
+            s = max(-3000, min(3000, int(value_outputs[0][0]*5000-2500)))
+            print('info score cp', s)
+            print('info string', s)
             probabilities = F.softmax(logits).cpu()
 
         legal_moves = []
@@ -67,7 +67,7 @@ class PolicyPlayer(BasePlayer):
             #print('info string {:5} : {:.5f}'.format(usi, probabilities[label]))
             
         selected_index = boltzmann(np.array(legal_logits, dtype=np.float32), 0.5)
-        selected_index = greedy(legal_logits)
+        #selected_index = greedy(legal_logits)
         bestmove = legal_moves[selected_index]
 
         print('bestmove', bestmove.usi())

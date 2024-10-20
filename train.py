@@ -10,8 +10,10 @@ from main import *
 from train_utils import *
 from io_utils import *
 
+
 ch = 192
 fcl = 256
+latest_features_dim = FEATURES_DIM
 
 class Block(nn.Module):
     def __init__(self):
@@ -27,21 +29,21 @@ class Block(nn.Module):
         return F.relu(x + h2)
 
 class PolicyValueResnet(nn.Module):
-    def __init__(self, blocks = 5):
+    def __init__(self, features_dim = K_dim*2, blocks = 5):
         super(PolicyValueResnet, self).__init__()
         self.blocks = blocks
       
-        self.l1=nn.Conv2d(in_channels = K_dim*2, out_channels = ch, kernel_size = 3, padding = 1)
+        self.l1=nn.Conv2d(in_channels = features_dim, out_channels = ch, kernel_size = 3, padding = 1)
         self.block_layers = nn.ModuleList([Block() for _ in range(1, blocks)])
 
         # policy network
         self.policy=nn.Conv2d(in_channels = ch, out_channels = MOVE_DIRECTION_LABEL_NUM, kernel_size = 1, bias = False)
-        self.policy_bias=nn.Parameter(torch.zeros(9*9*MOVE_DIRECTION_LABEL_NUM))
+        self.policy_bias=nn.Parameter(torch.zeros(OUTPUT_DIM))
  
         # value network
         self.value1=nn.Conv2d(in_channels = ch, out_channels = MOVE_DIRECTION_LABEL_NUM, kernel_size = 1)
         self.value1_bn = nn.BatchNorm2d(MOVE_DIRECTION_LABEL_NUM)
-        self.value2=nn.Linear(9*9*MOVE_DIRECTION_LABEL_NUM, fcl)
+        self.value2=nn.Linear(OUTPUT_DIM, fcl)
         self.value3=nn.Linear(fcl, 1)
 
     def forward(self, x):
@@ -51,11 +53,11 @@ class PolicyValueResnet(nn.Module):
 
         # policy network
         h_policy = self.policy(h)
-        u_policy = self.policy_bias + torch.reshape(h_policy, (-1, 9*9*MOVE_DIRECTION_LABEL_NUM,))
+        u_policy = self.policy_bias + torch.reshape(h_policy, (-1, OUTPUT_DIM,))
 
         # value network
         h_value = F.relu(self.value1_bn(self.value1(h)))
-        h_value = F.relu(self.value2(h_value.view(-1, 9*9*MOVE_DIRECTION_LABEL_NUM)))
+        h_value = F.relu(self.value2(h_value.view(-1, OUTPUT_DIM)))
         u_value = self.value3(h_value)
 
         return u_policy, u_value
@@ -64,10 +66,9 @@ def my_value_miss_loss(output, target):
     return torch.mean(output-target)
 
 
-BATCH_SIZE = 128
 if __name__ == '__main__':
-    model1 = PolicyValueResnet(blocks=5).cuda()
-    model2 = PolicyValueResnet(blocks=5).cuda()
+    model1 = PolicyValueResnet(latest_features_dim, blocks=5).cuda()
+    model2 = PolicyValueResnet(latest_features_dim, blocks=5).cuda()
 
     optimizer1 = optim.Adam(model1.parameters(), lr=0.001)
     optimizer2 = optim.Adam(model2.parameters(), lr=0.001)
@@ -91,10 +92,11 @@ if __name__ == '__main__':
         positions = pickle.load(f)
     print('Loaded.')
     
+    
     e_value = 5.0
-    e_value_miss = 2.0
+    e_value_miss = 10.0
 
-    for epoch in range(10000):
+    for epoch in range(500):
         x, policy_labels, value_labels = mini_batch(positions)
     
         policy_outputs, value_outputs = model1(x)
@@ -119,8 +121,7 @@ if __name__ == '__main__':
         x2 = torch.zeros(x.shape[0], K_dim*2, 9, 9, dtype=torch.bool)
         for i in range(len(boards)):
             boards[i].push_usi(bestmoves_usi[i])
-            x2[i] = board_2_features(boards[i], True)
-        x2 = x2.to('cuda', dtype=torch.float32)
+        x2 = boards_2_features(boards, True)
         
         _, value_outputs2 = model2(x2)
         value_miss_loss = e_value_miss * my_value_miss_loss(1.0-value_outputs2, value_outputs)
@@ -134,5 +135,5 @@ if __name__ == '__main__':
         if epoch % 50 == 0:
             print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
         
-    torch.save(model1.state_dict(), "output/model1.ckpt")
-    torch.save(model2.state_dict(), "output/model2-5-2.ckpt")
+    torch.save(model1.state_dict(), "output/model1-2.ckpt")
+    torch.save(model2.state_dict(), "output/model2-2.ckpt")

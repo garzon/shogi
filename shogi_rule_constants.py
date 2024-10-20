@@ -6,6 +6,9 @@ from constants import *
 def my_einsum(eq, *args):
     return torch.from_numpy(numpy.einsum(eq, *args) > 0)
 
+def my_einsum2(eq, *args):
+    args = list(map(lambda _: _.to('cuda', dtype=torch.float16), args))
+    return torch.einsum(eq, *args) != 0
 
 a_left = torch.ones(K_dim, 9, 9, dtype=torch.bool)
 a_left[PAWN, 0, :] = False
