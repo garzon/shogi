@@ -215,3 +215,24 @@ def get_bestmoves_from_logitss(boards, logitss):
         #selected_index = greedy(legal_logits)
         bestmoves.append(legal_moves[selected_index].usi())
     return bestmoves
+    
+    
+def get_bestmoves_from_legal_mats_and_logitss(legal_mats, logitss, is_white):
+    bestmoves = []
+    usiss = action_mat_2_usi(legal_mats, is_white, None)
+    
+    for idx in range(legal_mats.shape[0]):
+        logits = logitss[idx]
+        usis = usiss[idx]
+        
+        legal_logits = []
+        legal_moves = []
+        for usi in usis:
+            legal_moves.append(usi)
+            label = usi_2_act_id(usi, is_white)
+            legal_logits.append(logits[label].item())
+            
+        selected_index = boltzmann(numpy.array(legal_logits, dtype=numpy.float32), 0.5)
+        #selected_index = greedy(legal_logits)
+        bestmoves.append(legal_moves[selected_index])
+    return bestmoves

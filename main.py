@@ -9,46 +9,46 @@ from io_utils import *
     
 
 def apply_action_mat(board_black, hand_black, board_white, hand_white, A):
-    bougai = my_einsum("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
-    bougai_Kdim = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool)), dim=1)
+    bougai = my_einsum2("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
+    bougai_Kdim = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool).to('cuda')), dim=1)
 
     # optimizations for tensor A by splitting it into tensors with lower dim
-    BkFTp = my_einsum("BkFTp,BkFT->BkFTp", A, ~bougai_Kdim)
-    BT = my_einsum("BkFTp->BT", BkFTp)
-    BKF = my_einsum("BKFTp->BKF", BkFTp)
+    BkFTp = my_einsum2("BkFTp,BkFT->BkFTp", A, ~bougai_Kdim)
+    BT = my_einsum2("BkFTp->BT", BkFTp)
+    BKF = my_einsum2("BKFTp->BKF", BkFTp)
     
-    S_black = torch.cat((board_black, hand_black), dim=1)
+    S_black = torch.cat((board_black, hand_black), dim=1).to('cuda')
     after_removing = S_black ^ (S_black & BKF)
     after_removing_board_black, after_removing_hand_black = torch.split(after_removing, [k_dim, K_dim-k_dim], dim=1)
-    after_removing_hand_black = my_einsum("BkF,KkFT,BKx->BkT", after_removing_hand_black, a_use_piece, BKF)
+    after_removing_hand_black = my_einsum2("BkF,KkFT,BKx->BkT", after_removing_hand_black, a_use_piece, BKF)
     
-    new_board_black = after_removing_board_black + my_einsum("BkF,BkFTp,pkK->BKT", S_black, BkFTp, a_prom[:,:,:k_dim])
-    captured_piece = my_einsum("BKT,BT,Kk->Bk", board_white, BT, a_captured)
-    if_captured = my_einsum("Bk->B", captured_piece)
-    new_hand_black_if_captured = my_einsum("BKF,Bk,kKFT->BKT", after_removing_hand_black, captured_piece, a_take_piece) + torch.cat((torch.zeros(captured_piece.shape[0], captured_piece.shape[1], 80, dtype=torch.bool), captured_piece.unsqueeze(2)), dim=2)
-    new_hand_black = my_einsum("B,BkT->BkT", ~if_captured, after_removing_hand_black) + my_einsum("B,BkT->BkT", if_captured, new_hand_black_if_captured)
-    new_board_white = board_white ^ my_einsum("BKT,BT->BKT", board_white, BT)
+    new_board_black = after_removing_board_black + my_einsum2("BkF,BkFTp,pkK->BKT", S_black, BkFTp, a_prom[:,:,:k_dim])
+    captured_piece = my_einsum2("BKT,BT,Kk->Bk", board_white, BT, a_captured)
+    if_captured = my_einsum2("Bk->B", captured_piece)
+    new_hand_black_if_captured = my_einsum2("BKF,Bk,kKFT->BKT", after_removing_hand_black, captured_piece, a_take_piece) + torch.cat((torch.zeros(captured_piece.shape[0], captured_piece.shape[1], 80, dtype=torch.bool).to('cuda'), captured_piece.unsqueeze(2)), dim=2)
+    new_hand_black = my_einsum2("B,BkT->BkT", ~if_captured, after_removing_hand_black) + my_einsum2("B,BkT->BkT", if_captured, new_hand_black_if_captured)
+    new_board_white = board_white.to('cuda') ^ my_einsum2("BKT,BT->BKT", board_white, BT)
     
     #TODO: uchifu-tsumi
     
-    return invert_order(new_board_black, new_hand_black, new_board_white, hand_white)
+    return invert_order((new_board_black != 0).to('cpu'), (new_hand_black != 0).to('cpu'), (new_board_white != 0).to('cpu'), (hand_white != 0).to('cpu'))
     
 
 def calc_legal_moves_mat(board_black, hand_black, board_white):
     S_black = torch.cat((board_black, hand_black), dim=1)
     board_sum = board_black + board_white
     
-    ok_to_move = my_einsum("BKF,KFTp->BKFTp", S_black, a_movable)
+    ok_to_move = my_einsum2("BKF,KFTp->BKFTp", S_black, a_movable)
     
-    uchibougai = my_einsum("BKP,kTP->BkT", board_sum, a_uchibougai)
-    nifu = my_einsum("BKP,KPkT->BkT", board_black, a_nifu)
-    bougai = my_einsum("BKP,kFTP->BkFT", board_sum, a_bougai)
-    bougai_Kdim = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool)), dim=1)
-    jibougai = my_einsum("BKP,TP->BT", board_black, a_jibougai)
+    uchibougai = my_einsum2("BKP,kTP->BkT", board_sum, a_uchibougai)
+    nifu = my_einsum2("BKP,KPkT->BkT", board_black, a_nifu)
+    bougai = my_einsum2("BKP,kFTP->BkFT", board_sum, a_bougai)
+    bougai_Kdim = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool).to('cuda')), dim=1)
+    jibougai = my_einsum2("BKP,TP->BT", board_black, a_jibougai)
     
-    board_pieces = my_einsum("BKP->BP", board_sum)
-    board_if_moved = my_einsum("BP,PF->BPF", board_pieces, ~torch.eye(P_dim, dtype=torch.bool))
-    board_if_moved = board_if_moved.unsqueeze(3).expand(-1, -1, -1, T_dim) + a_add_piece.unsqueeze(0)
+    board_pieces = my_einsum2("BKP->BP", board_sum)
+    board_if_moved = my_einsum2("BP,PF->BPF", board_pieces, ~torch.eye(P_dim, dtype=torch.bool))
+    board_if_moved = board_if_moved.unsqueeze(3).expand(-1, -1, -1, T_dim) + a_add_piece.unsqueeze(0).to('cuda', dtype=torch.float16)
     
     # --- calculate oute[]
     king_pos = board_black[:, KING, :].squeeze(1)
@@ -62,15 +62,15 @@ def calc_legal_moves_mat(board_black, hand_black, board_white):
     white_attack_king_if_king_moved = my_einsum2("BKPT,KPT,BPFT->BFT", white_if_moved, a_oppo_move, ~bougai_to_king_if_king_moved)
     
     oute = torch.zeros(K_dim, board_black.shape[0], F_dim, T_dim, dtype=torch.bool)
-    oute[:] = (white_attack_king != 0).to('cpu')
-    oute[KING] = (white_attack_king_if_king_moved != 0).to('cpu')
-    oute = torch.permute(oute, (1, 0, 2, 3)).contiguous()
+    oute[:] = white_attack_king
+    oute[KING] = white_attack_king_if_king_moved != 0
+    oute = torch.permute(oute, (1, 0, 2, 3)).contiguous().to('cuda')
     # -----------------
     
     total_forbidden = (jibougai.unsqueeze(1) + uchibougai + nifu).unsqueeze(2) + bougai_Kdim + oute
 
-    legal_moves_mat = my_einsum("BKFTp,BKFT->BKFTp", ok_to_move, ~total_forbidden)
-    return legal_moves_mat
+    legal_moves_mat = my_einsum2("BKFTp,BKFT->BKFTp", ok_to_move, ~total_forbidden)
+    return (legal_moves_mat != 0).to('cpu')
     
 def test_legal_moves(board, mat, is_white):
     ok_mat = calc_legal_moves_mat(mat[0], mat[1], mat[2])

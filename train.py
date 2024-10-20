@@ -94,7 +94,7 @@ if __name__ == '__main__':
     
     
     e_value = 5.0
-    e_value_miss = 10.0
+    e_value_miss = 5.0
 
     for epoch in range(500):
         x, policy_labels, value_labels = mini_batch(positions)
@@ -114,9 +114,12 @@ if __name__ == '__main__':
         policy_loss = policy_loss_fn(policy_outputs, policy_labels)
         value_loss = e_value * value_loss_fn2(value_outputs, value_labels)
 
-        board_black, hand_black, board_white, hand_white = map(lambda _:_.to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim], dim=1))
+        board_black, hand_black, board_white, hand_white, _, _2 = map(lambda _:_.to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim, k_dim, k_dim], dim=1))
         boards = mat_2_boards(board_black, hand_black, board_white, hand_white, False)
-        bestmoves_usi = get_bestmoves_from_logitss(boards, policy_outputs)
+        
+        #bestmoves_usi = get_bestmoves_from_logitss(boards, policy_outputs)
+        legal_mats = calc_legal_moves_mat(board_black, hand_black, board_white)
+        bestmoves_usi = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, False)
         
         x2 = torch.zeros(x.shape[0], K_dim*2, 9, 9, dtype=torch.bool)
         for i in range(len(boards)):
@@ -135,5 +138,5 @@ if __name__ == '__main__':
         if epoch % 50 == 0:
             print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
         
-    torch.save(model1.state_dict(), "output/model1-2.ckpt")
-    torch.save(model2.state_dict(), "output/model2-2.ckpt")
+    torch.save(model1.state_dict(), "output/model1-3.ckpt")
+    torch.save(model2.state_dict(), "output/model2-3.ckpt")
