@@ -26,7 +26,7 @@ def apply_action_mat(board_black, hand_black, board_white, hand_white, A):
     captured_piece = my_einsum("BKT,BT,Kk->Bk", board_white, BT, a_captured)
     if_captured = my_einsum("Bk->B", captured_piece)
     new_hand_black_if_captured = my_einsum("BKF,Bk,kKFT->BKT", after_removing_hand_black, captured_piece, a_take_piece) + torch.cat((torch.zeros(captured_piece.shape[0], captured_piece.shape[1], 80, dtype=torch.bool), captured_piece.unsqueeze(2)), dim=2)
-    new_hand_black = ~if_captured * after_removing_hand_black + if_captured * new_hand_black_if_captured
+    new_hand_black = my_einsum("B,BkT->BkT", ~if_captured, after_removing_hand_black) + my_einsum("B,BkT->BkT", if_captured, new_hand_black_if_captured)
     new_board_white = board_white ^ my_einsum("BKT,BT->BKT", board_white, BT)
     
     #TODO: uchifu-tsumi

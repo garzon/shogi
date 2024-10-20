@@ -57,7 +57,6 @@ def from_to_2_act_id(move_from, move_to, move_prom, move_drop_piece_type=None):
     move_label = 9 * 9 * move_direction + move_to
     return move_label
     
-
 def get_action_mat(act_ids):
     A = torch.zeros(len(act_ids), K_dim, F_dim, T_dim, Pr_dim, dtype=torch.bool)
     for ind, act_id in enumerate(act_ids):
@@ -76,6 +75,9 @@ def get_action_mat(act_ids):
             A[ind, :, :, t, prom] = can_goto
             A[ind, k_dim:, :, t, prom] = False
     return A
+a_id_2_mat = get_action_mat(list(range(9*9*MOVE_DIRECTION_LABEL_NUM)))
+del get_action_mat
+get_action_mat = lambda act_ids: a_id_2_mat[act_ids]
 
 def action_mat_2_usi(A, is_white, is_unique_with_S_black):
     if is_unique_with_S_black is not None:
