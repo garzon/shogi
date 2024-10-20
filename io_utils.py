@@ -112,7 +112,7 @@ def mat_2_boards(board_black, hand_black, board_white, hand_white, is_white):
     boards = []
     colors = [shogi.BLACK, shogi.WHITE]
     if is_white: colors = colors[::-1]
-    for b in range(len(board_black)):
+    for b in range(board_black.shape[0]):
         b_black = board_black[b]
         b_white = board_white[b]
         if is_white:
@@ -120,17 +120,25 @@ def mat_2_boards(board_black, hand_black, board_white, hand_white, is_white):
             b_white = rotate_180deg(board_white)[b]
         board = shogi.Board()
         board.clear()
+        for (k, p) in b_black.to_sparse().indices().transpose(0, 1):
+            board.set_piece_at(p.item(), shogi.Piece(k.item()+1, colors[0]))
+        for (k, p) in b_white.to_sparse().indices().transpose(0, 1):
+            board.set_piece_at(p.item(), shogi.Piece(k.item()+1, colors[1]))
+            
+        board.turn = shogi.WHITE if is_white else shogi.BLACK
+        
         for k in range(K_dim-k_dim):
             for p in range(80, -1, -1):
                 if not hand_black[b, k, p]: break
-            board.add_piece_into_hand(k+1, colors[0], 80-p)
+            if p != 80:
+                board.add_piece_into_hand(k+1, colors[0], 80-p)
             for p in range(80, -1, -1):
                 if not hand_white[b, k, p]: break
-            board.add_piece_into_hand(k+1, colors[1], 80-p)
-        for (k, p) in b_black.to_sparse().indices().transpose(0, 1):
-            board.set_piece_at(p, shogi.Piece(k+1, colors[0]))
-        for (k, p) in b_white.to_sparse().indices().transpose(0, 1):
-            board.set_piece_at(p, shogi.Piece(k+1, colors[1]))
+            if p != 80:
+                board.add_piece_into_hand(k+1, colors[1], 80-p)
+            
+        board.pseudo_legal_moves = shogi.PseudoLegalMoveGenerator(board)
+        board.legal_moves = shogi.LegalMoveGenerator(board)
         boards.append(board)
     return boards
 
@@ -161,3 +169,29 @@ def board_2_features(board, is_white):
     mat = board_2_mat(board, board.turn == shogi.WHITE)
     mat = torch.cat(mat, dim=1)[0].reshape(-1, 9, 9)
     return mat
+
+def boltzmann(logits, temperature):
+    logits /= temperature
+    logits -= logits.max()
+    probabilities = numpy.exp(logits)
+    probabilities /= probabilities.sum()
+    return numpy.random.choice(len(logits), p=probabilities)
+
+def get_bestmoves_from_logitss(boards, logitss):
+    bestmoves = []
+    for idx in range(len(boards)):
+        board = boards[idx]
+        logits = logitss[idx]
+        
+        legal_moves = []
+        legal_logits = []
+        for move in board.legal_moves:
+            usi = move.usi()
+            label = usi_2_act_id(usi, board.turn == shogi.WHITE)
+            legal_moves.append(move)
+            legal_logits.append(logits[label].item())
+            
+        selected_index = boltzmann(numpy.array(legal_logits, dtype=numpy.float32), 0.5)
+        #selected_index = greedy(legal_logits)
+        bestmoves.append(legal_moves[selected_index].usi())
+    return bestmoves

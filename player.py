@@ -54,7 +54,7 @@ class PolicyPlayer(BasePlayer):
             policy_outputs, value_outputs = self.model(x)
             print('info string', policy_outputs.shape, value_outputs.shape)
             logits = policy_outputs[0]
-            print('info score cp', int(value_outputs[0][0]*50000-25000))
+            print('info score cp', max(-29000, min(29000, int(value_outputs[0][0]*50000-25000))))
             probabilities = F.softmax(logits).cpu()
 
         legal_moves = []

@@ -3,10 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import pickle
+import shogi
 
 from constants import *
 from main import *
 from train_utils import *
+from io_utils import *
 
 ch = 192
 fcl = 256
@@ -92,7 +94,7 @@ if __name__ == '__main__':
     e_value = 5.0
     e_value_miss = 2.0
 
-    for epoch in range(100):
+    for epoch in range(10000):
         x, policy_labels, value_labels = mini_batch(positions)
     
         policy_outputs, value_outputs = model1(x)
@@ -110,12 +112,16 @@ if __name__ == '__main__':
         policy_loss = policy_loss_fn(policy_outputs, policy_labels)
         value_loss = e_value * value_loss_fn2(value_outputs, value_labels)
 
-        board_black, hand_back, board_white, hand_white = map(lambda _:_.to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim], dim=1))
-        legal_mats = calc_legal_moves_mat(board_black, hand_back, board_white)
-        legal_ids = my_einsum('BKFTp,IKFTp->BI',legal_mats,a_id_2_mat)
-        A = get_action_mat(torch.argmax(value_outputs.cpu() * legal_ids, dim=1))
-        board_black, hand_back, board_white, hand_white = apply_action_mat(board_black, hand_back, board_white, hand_white, A)
-        x2 = torch.cat((board_black, hand_back, board_white, hand_white), dim=1).reshape(x.shape[0], x.shape[1], 9, 9).to('cuda', dtype=torch.float32)
+        board_black, hand_black, board_white, hand_white = map(lambda _:_.to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim], dim=1))
+        boards = mat_2_boards(board_black, hand_black, board_white, hand_white, False)
+        bestmoves_usi = get_bestmoves_from_logitss(boards, policy_outputs)
+        
+        x2 = torch.zeros(x.shape[0], K_dim*2, 9, 9, dtype=torch.bool)
+        for i in range(len(boards)):
+            boards[i].push_usi(bestmoves_usi[i])
+            x2[i] = board_2_features(boards[i], True)
+        x2 = x2.to('cuda', dtype=torch.float32)
+        
         _, value_outputs2 = model2(x2)
         value_miss_loss = e_value_miss * my_value_miss_loss(1.0-value_outputs2, value_outputs)
         loss2 = policy_loss + value_loss + value_miss_loss
@@ -125,7 +131,8 @@ if __name__ == '__main__':
         optimizer2.step()
 
         # Print the loss
-        print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
+        if epoch % 50 == 0:
+            print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
         
     torch.save(model1.state_dict(), "output/model1.ckpt")
     torch.save(model2.state_dict(), "output/model2-5-2.ckpt")

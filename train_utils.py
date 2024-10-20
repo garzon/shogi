@@ -46,7 +46,7 @@ def mini_batch(positions, batchsize=3, cons_size=3, device=torch.device("cuda"))
         torch.tensor(mini_batch_win, dtype=torch.float32, device=device).reshape((-1, 1)),
     )
     
-TRAIN_PICKLE = 'output/train_list2.ckpt'
+TRAIN_PICKLE = 'output/train_list.ckpt'
 if __name__ == '__main__':
     positions = read_kifu()
     print(len(positions))
