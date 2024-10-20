@@ -15,53 +15,54 @@ a_left[KNIGHT, 1, :] = False
 a_left = a_left.reshape(K_dim, T_dim)
 
 
-a_move = torch.zeros(K_dim, F_dim, T_dim, dtype=torch.bool)
-def set_value_if(mat, k, x, y, nx, ny):
+a_move_dir = torch.zeros(K_dim, F_dim, T_dim, len(MOVE_DIRECTION)-len(MOVE_DIRECTION_PROMOTED)+len(HAND_PIECE_TYPES), dtype=torch.bool)
+def set_value_if(mat, k, x, y, nx, ny, d):
     if nx < 0 or nx >= 9 or ny < 0 or ny >= 9: return
-    mat[k, x*9+y, nx*9+ny] = True
+    mat[k, x*9+y, nx*9+ny, d] = True
 for k in HAND_PIECE_TYPES:
-    a_move[k, 80, :] = True
+    a_move_dir[k, 80, :, len(MOVE_DIRECTION)-len(MOVE_DIRECTION_PROMOTED)+k-k_dim] = True
 for p_y in range(9):
     for p_x in range(9):
-        set_value_if(a_move, PAWN, p_x, p_y, p_x-1, p_y)
-        set_value_if(a_move, KNIGHT, p_x, p_y, p_x-2, p_y-1)
-        set_value_if(a_move, KNIGHT, p_x, p_y, p_x-2, p_y+1)
-        set_value_if(a_move, SILVER, p_x, p_y, p_x-1, p_y-1)
-        set_value_if(a_move, SILVER, p_x, p_y, p_x-1, p_y)
-        set_value_if(a_move, SILVER, p_x, p_y, p_x-1, p_y+1)
-        set_value_if(a_move, SILVER, p_x, p_y, p_x+1, p_y-1)
-        set_value_if(a_move, SILVER, p_x, p_y, p_x+1, p_y+1)
-        set_value_if(a_move, GOLD, p_x, p_y, p_x-1, p_y-1)
-        set_value_if(a_move, GOLD, p_x, p_y, p_x-1, p_y)
-        set_value_if(a_move, GOLD, p_x, p_y, p_x-1, p_y+1)
-        set_value_if(a_move, GOLD, p_x, p_y, p_x, p_y-1)
-        set_value_if(a_move, GOLD, p_x, p_y, p_x+1, p_y)
-        set_value_if(a_move, GOLD, p_x, p_y, p_x, p_y+1)
+        set_value_if(a_move_dir, PAWN, p_x, p_y, p_x-1, p_y, UP)
+        set_value_if(a_move_dir, KNIGHT, p_x, p_y, p_x-2, p_y-1, UP2_LEFT)
+        set_value_if(a_move_dir, KNIGHT, p_x, p_y, p_x-2, p_y+1, UP2_RIGHT)
+        set_value_if(a_move_dir, SILVER, p_x, p_y, p_x-1, p_y-1, UP_LEFT)
+        set_value_if(a_move_dir, SILVER, p_x, p_y, p_x-1, p_y, UP)
+        set_value_if(a_move_dir, SILVER, p_x, p_y, p_x-1, p_y+1, UP_RIGHT)
+        set_value_if(a_move_dir, SILVER, p_x, p_y, p_x+1, p_y-1, DOWN_LEFT)
+        set_value_if(a_move_dir, SILVER, p_x, p_y, p_x+1, p_y+1, DOWN_RIGHT)
+        set_value_if(a_move_dir, GOLD, p_x, p_y, p_x-1, p_y-1, UP_LEFT)
+        set_value_if(a_move_dir, GOLD, p_x, p_y, p_x-1, p_y, UP)
+        set_value_if(a_move_dir, GOLD, p_x, p_y, p_x-1, p_y+1, UP_RIGHT)
+        set_value_if(a_move_dir, GOLD, p_x, p_y, p_x, p_y-1, LEFT)
+        set_value_if(a_move_dir, GOLD, p_x, p_y, p_x+1, p_y, DOWN)
+        set_value_if(a_move_dir, GOLD, p_x, p_y, p_x, p_y+1, RIGHT)
         for t_x in range(p_x):
-            set_value_if(a_move, LANCE, p_x, p_y, t_x, p_y)
+            set_value_if(a_move_dir, LANCE, p_x, p_y, t_x, p_y, UP)
         for i in range(1, 9):
-            set_value_if(a_move, ROOK, p_x, p_y, p_x - i, p_y)
-            set_value_if(a_move, ROOK, p_x, p_y, p_x + i, p_y)
-            set_value_if(a_move, ROOK, p_x, p_y, p_x, p_y - i)
-            set_value_if(a_move, ROOK, p_x, p_y, p_x, p_y + i)
-            set_value_if(a_move, BISHOP, p_x, p_y, p_x - i, p_y - i)
-            set_value_if(a_move, BISHOP, p_x, p_y, p_x + i, p_y + i)
-            set_value_if(a_move, BISHOP, p_x, p_y, p_x - i, p_y + i)
-            set_value_if(a_move, BISHOP, p_x, p_y, p_x + i, p_y - i)
-a_move[PROM_PAWN] = a_move[PROM_LANCE] = a_move[PROM_KNIGHT] = a_move[PROM_SILVER] = a_move[GOLD]
-a_move[PROM_BISHOP] = a_move[BISHOP]
-a_move[PROM_ROOK] = a_move[ROOK]
+            set_value_if(a_move_dir, ROOK, p_x, p_y, p_x - i, p_y, UP)
+            set_value_if(a_move_dir, ROOK, p_x, p_y, p_x + i, p_y, DOWN)
+            set_value_if(a_move_dir, ROOK, p_x, p_y, p_x, p_y - i, LEFT)
+            set_value_if(a_move_dir, ROOK, p_x, p_y, p_x, p_y + i, RIGHT)
+            set_value_if(a_move_dir, BISHOP, p_x, p_y, p_x - i, p_y - i, UP_LEFT)
+            set_value_if(a_move_dir, BISHOP, p_x, p_y, p_x + i, p_y + i, DOWN_RIGHT)
+            set_value_if(a_move_dir, BISHOP, p_x, p_y, p_x - i, p_y + i, UP_RIGHT)
+            set_value_if(a_move_dir, BISHOP, p_x, p_y, p_x + i, p_y - i, DOWN_LEFT)
+a_move_dir[PROM_PAWN] = a_move_dir[PROM_LANCE] = a_move_dir[PROM_KNIGHT] = a_move_dir[PROM_SILVER] = a_move_dir[GOLD]
+a_move_dir[PROM_BISHOP] = a_move_dir[BISHOP]
+a_move_dir[PROM_ROOK] = a_move_dir[ROOK]
 for p_y in range(9):
     for p_x in range(9):
         for k in [PROM_BISHOP, PROM_ROOK, KING]:
-            set_value_if(a_move, k, p_x, p_y, p_x-1, p_y-1)
-            set_value_if(a_move, k, p_x, p_y, p_x-1, p_y)
-            set_value_if(a_move, k, p_x, p_y, p_x-1, p_y+1)
-            set_value_if(a_move, k, p_x, p_y, p_x, p_y-1)
-            set_value_if(a_move, k, p_x, p_y, p_x, p_y+1)
-            set_value_if(a_move, k, p_x, p_y, p_x+1, p_y-1)
-            set_value_if(a_move, k, p_x, p_y, p_x+1, p_y)
-            set_value_if(a_move, k, p_x, p_y, p_x+1, p_y+1)
+            set_value_if(a_move_dir, k, p_x, p_y, p_x-1, p_y-1, UP_LEFT)
+            set_value_if(a_move_dir, k, p_x, p_y, p_x-1, p_y, UP)
+            set_value_if(a_move_dir, k, p_x, p_y, p_x-1, p_y+1, UP_RIGHT)
+            set_value_if(a_move_dir, k, p_x, p_y, p_x, p_y-1, LEFT)
+            set_value_if(a_move_dir, k, p_x, p_y, p_x, p_y+1, RIGHT)
+            set_value_if(a_move_dir, k, p_x, p_y, p_x+1, p_y-1, DOWN_LEFT)
+            set_value_if(a_move_dir, k, p_x, p_y, p_x+1, p_y, DOWN)
+            set_value_if(a_move_dir, k, p_x, p_y, p_x+1, p_y+1, DOWN_RIGHT)
+a_move = torch.einsum("KFTD->KFT", a_move_dir)
 a_oppo_move = torch.flip(a_move[:k_dim, :, :], [1, 2])
 del set_value_if
 

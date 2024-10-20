@@ -9,16 +9,20 @@ from io_utils import *
     
 
 def apply_action_mat(board_black, hand_black, board_white, hand_white, A):
+    bougai = my_einsum("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
+    bougai_Kdim = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool)), dim=1)
+
     # optimizations for tensor A by splitting it into tensors with lower dim
-    BT = my_einsum("BxyTz->BT", A)
-    BKF = my_einsum("BKFxy->BKF", A)
+    BkFTp = my_einsum("BkFTp,BkFT->BkFTp", A, ~bougai_Kdim)
+    BT = my_einsum("BkFTp->BT", BkFTp)
+    BKF = my_einsum("BKFTp->BKF", BkFTp)
     
     S_black = torch.cat((board_black, hand_black), dim=1)
     after_removing = S_black ^ (S_black & BKF)
     after_removing_board_black, after_removing_hand_black = torch.split(after_removing, [k_dim, K_dim-k_dim], dim=1)
     after_removing_hand_black = my_einsum("BkF,KkFT,BKx->BkT", after_removing_hand_black, a_use_piece, BKF)
     
-    new_board_black = after_removing_board_black + my_einsum("BkF,BkFTp,pkK->BKT", S_black, A, a_prom[:,:,:k_dim])
+    new_board_black = after_removing_board_black + my_einsum("BkF,BkFTp,pkK->BKT", S_black, BkFTp, a_prom[:,:,:k_dim])
     captured_piece = my_einsum("BKT,BT,Kk->Bk", board_white, BT, a_captured)
     if_captured = my_einsum("Bk->B", captured_piece)
     new_hand_black_if_captured = my_einsum("BKF,Bk,kKFT->BKT", after_removing_hand_black, captured_piece, a_take_piece) + torch.cat((torch.zeros(captured_piece.shape[0], captured_piece.shape[1], 80, dtype=torch.bool), captured_piece.unsqueeze(2)), dim=2)
@@ -73,7 +77,7 @@ def calc_legal_moves_mat(board_black, hand_black, board_white):
 def test_legal_moves(board, mat, is_white):
     ok_mat = calc_legal_moves_mat(mat[0], mat[1], mat[2])
 
-    my = sorted(action_mat_2_usi(ok_mat, is_white)[0])
+    my = sorted(action_mat_2_usi(ok_mat, is_white, None)[0])
     std = board.legal_moves
     diff = [_ for _ in std if _.usi() not in set(my)]
     diff2 = [m for m in my if m not in set(_.usi() for _ in std)]
@@ -84,33 +88,35 @@ def test_legal_moves(board, mat, is_white):
         return False
     return True
 
-    
-kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
-board = shogi.Board()
-step = -1
-for step in range(0):
-    board.push(shogi.Move.from_usi(kif[step]))
-step += 1
 
-board_black, hand_black, board_white, hand_white = board_2_mat(board, step % 2 != 0)
-while step < len(kif):
-    is_white = step % 2 != 0
-    print(step)
-    print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
-    print('----------------')
-    usi_move = kif[step]
-    A = get_action_mat([usi_2_act_id(usi_move, is_white)])
-    debug_usi = action_mat_2_usi(A, is_white)
-    if len(debug_usi[0]) != 1 or usi_move not in debug_usi[0]:
-        print(step, board.kif_str())
-        print(debug_usi, usi_move)
-        raise 'action mat conversion error'
-    
-    if not test_legal_moves(board, (board_black, hand_black, board_white), is_white):
-        print(step, board.kif_str())
-        print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
-        raise 'legal moves not matched'
-    
-    board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A)
-    board.push(shogi.Move.from_usi(usi_move))
+if __name__ == '__main__':
+    kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
+    board = shogi.Board()
+    step = -1
+    for step in range(3):
+        board.push(shogi.Move.from_usi(kif[step]))
     step += 1
+
+    board_black, hand_black, board_white, hand_white = board_2_mat(board, step % 2 != 0)
+    while step < len(kif):
+        is_white = step % 2 != 0
+        print('Step', step)
+        print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
+        print('----------------')
+        usi_move = kif[step]
+        
+        A = get_action_mat([usi_2_act_id(usi_move, is_white)])
+        debug_usi = action_mat_2_usi(A, is_white, torch.cat((board_black, hand_black), dim=1))
+        print(debug_usi, usi_move)
+        if len(debug_usi[0]) != 1 or usi_move not in debug_usi[0]:
+            print('Step', step, board.kif_str())
+            raise 'action mat conversion error'
+        
+        if not test_legal_moves(board, (board_black, hand_black, board_white), is_white):
+            print('Step', step, board.kif_str())
+            print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
+            raise 'legal moves not matched'
+        
+        board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A)
+        board.push(shogi.Move.from_usi(usi_move))
+        step += 1
