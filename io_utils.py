@@ -156,3 +156,8 @@ def board_2_mat(board, is_white):
     if not is_white:
         return board_black, hand_black, board_white, hand_white
     return invert_order(board_black, hand_black, board_white, hand_white)
+
+def board_2_features(board, is_white):
+    mat = board_2_mat(board, board.turn == shogi.WHITE)
+    mat = torch.cat(mat, dim=1)[0].reshape(-1, 9, 9)
+    return mat

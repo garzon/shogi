@@ -118,7 +118,6 @@ if __name__ == '__main__':
         x2 = torch.cat((board_black, hand_back, board_white, hand_white), dim=1).reshape(x.shape[0], x.shape[1], 9, 9).to('cuda', dtype=torch.float32)
         _, value_outputs2 = model2(x2)
         value_miss_loss = e_value_miss * my_value_miss_loss(1.0-value_outputs2, value_outputs)
-        print(policy_loss.shape, value_loss.shape, value_miss_loss.shape)
         loss2 = policy_loss + value_loss + value_miss_loss
         
         optimizer2.zero_grad()

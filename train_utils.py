@@ -17,8 +17,7 @@ def read_kifu(kifu_list_file="kifu.txt", num=200):
             win_color = shogi.BLACK if kifu['win'] == 'b' else shogi.WHITE
             board = shogi.Board()
             for step, move in enumerate(kifu['moves']):
-                mat = board_2_mat(board, board.turn == shogi.WHITE)
-                mat = torch.cat(mat, dim=1)[0].reshape(-1, 9, 9)
+                mat = board_2_features(board, board.turn == shogi.WHITE)
                 
                 move_label = usi_2_act_id(move, board.turn == shogi.WHITE)
                 
