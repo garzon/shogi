@@ -37,7 +37,7 @@ class PolicyPlayer(BasePlayer):
 
     def isready(self):
         if self.model is None:
-            self.model = PolicyValueResnet().cuda()
+            self.model = PolicyValueResnet(latest_features_dim).cuda()
             self.model.load_state_dict(torch.load(self.modelfile, weights_only=True))
             self.model.eval()
         print('readyok')
@@ -47,7 +47,7 @@ class PolicyPlayer(BasePlayer):
             print('bestmove resign')
             return
 
-        x = boards_2_features([self.board], self.board.turn == shogi.WHITE, func=board_2_features)
+        x = boards_2_features([self.board], self.board.turn == shogi.WHITE)#, func=board_2_features)
 
         with torch.no_grad():
             policy_outputs, value_outputs = self.model(x)

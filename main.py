@@ -6,11 +6,18 @@ import shogi.KIF
 from shogi_rule_constants import *
 from io_utils import *
     
+def to_gpu_float32(*args):
+    return [_.to('cuda', dtype=torch.float32) for _ in args]
     
+def to_gpu_float16(*args):
+    return [_.to('cuda', dtype=torch.float16) for _ in args]
+    
+def to_cpu_bool(*args):
+    return [(_!=0).to('cpu', dtype=torch.bool) for _ in args]
 
-def apply_action_mat(board_black, hand_black, board_white, hand_white, A):
+def apply_action_mat(board_black, hand_black, board_white, hand_white, A, to_cpu=True):
     bougai = my_einsum2("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
-    bougai_Kdim = torch.cat((bougai, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool).to('cuda')), dim=1)
+    bougai_Kdim = torch.cat((bougai!=0, torch.zeros(bougai.shape[0], K_dim-k_dim, bougai.shape[2], bougai.shape[3], dtype=torch.bool).to('cuda')), dim=1)
 
     # optimizations for tensor A by splitting it into tensors with lower dim
     BkFTp = my_einsum2("BkFTp,BkFT->BkFTp", A, ~bougai_Kdim)
@@ -31,7 +38,11 @@ def apply_action_mat(board_black, hand_black, board_white, hand_white, A):
     
     #TODO: uchifu-tsumi
     
-    return invert_order((new_board_black != 0).to('cpu'), (new_hand_black != 0).to('cpu'), (new_board_white != 0).to('cpu'), (hand_white != 0).to('cpu'))
+    converter = lambda _: _!= 0
+    if to_cpu:
+        converter = lambda _: (_!=0).to('cpu')
+    
+    return invert_order(*[converter(_) for _ in (new_board_black, new_hand_black, new_board_white, hand_white)])
     
 
 def calc_legal_moves_mat(board_black, hand_black, board_white):
@@ -48,7 +59,7 @@ def calc_legal_moves_mat(board_black, hand_black, board_white):
     
     board_pieces = my_einsum2("BKP->BP", board_sum)
     board_if_moved = my_einsum2("BP,PF->BPF", board_pieces, ~torch.eye(P_dim, dtype=torch.bool))
-    board_if_moved = board_if_moved.unsqueeze(3).expand(-1, -1, -1, T_dim) + a_add_piece.unsqueeze(0).to('cuda', dtype=torch.float16)
+    board_if_moved = board_if_moved.unsqueeze(3).expand(-1, -1, -1, T_dim) + a_add_piece.unsqueeze(0).to('cuda')
     
     # --- calculate oute[]
     king_pos = board_black[:, KING, :].squeeze(1)

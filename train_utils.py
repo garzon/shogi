@@ -5,8 +5,15 @@ import random
 
 from io_utils import *
 
+TRAIN_PICKLE = 'output/train_list_feature2.ckpt'
+def save_features(positions):
+    print('Saving', len(positions))
+    with open(TRAIN_PICKLE, 'wb') as f:
+        pickle.dump(positions, f)
+    print('Saving done')
+
 BASE_FILE_PATH = "D:\\github\\pydlshogi\\"
-def read_kifu(kifu_list_file="kifu.txt", num=1000):
+def read_kifu(kifu_list_file="kifu.txt", num=10000, save_every=500):
     positions = []
     with open(BASE_FILE_PATH+kifu_list_file, 'r') as f:
         for idx, line in enumerate(f.readlines()):
@@ -27,9 +34,11 @@ def read_kifu(kifu_list_file="kifu.txt", num=1000):
 
                 positions.append((mat.tolist(), move_label, win))
                 board.push_usi(move)
+            if save_every is not None and idx % save_every == save_every-1:
+                save_features(positions)
     return positions
     
-def mini_batch(positions, batchsize=20, cons_size=4, device=torch.device("cuda")):
+def mini_batch(positions, batchsize=15, cons_size=6, device=torch.device("cuda")):
     mini_batch_data = []
     mini_batch_move = []
     mini_batch_win = []
@@ -46,10 +55,6 @@ def mini_batch(positions, batchsize=20, cons_size=4, device=torch.device("cuda")
         torch.tensor(mini_batch_win, dtype=torch.float32, device=device).reshape((-1, 1)),
     )
     
-TRAIN_PICKLE = 'output/train_list_feature2.ckpt'
 if __name__ == '__main__':
     positions = read_kifu()
-    print(len(positions))
-    with open(TRAIN_PICKLE, 'wb') as f:
-        pickle.dump(positions, f)
-    
+    save_features(positions)

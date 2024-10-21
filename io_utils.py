@@ -170,24 +170,27 @@ def board_2_features(board, is_white):
     mat = torch.cat(mat, dim=1)[0].reshape(-1, 9, 9)
     return mat
     
+def calc_attack(board_black, board_white):
+    bougai = my_einsum2("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
+    board_black_attack = my_einsum2("BkF,kFT,BkFT->BkT", board_black, a_move[:k_dim], ~bougai)
+    board_white_attack = my_einsum2("BkF,kFT,BkFT->BkT", board_white, a_oppo_move[:k_dim], ~bougai)
+    return board_black_attack, board_white_attack
+    
 def board_2_features2(board, is_white):
-    board_black, hand_black, board_white, hand_white = map(lambda _:_.squeeze(0).to('cuda'), board_2_mat(board, board.turn == shogi.WHITE))
+    board_black, hand_black, board_white, hand_white = map(lambda _:_.to('cuda'), board_2_mat(board, board.turn == shogi.WHITE))
     
-    bougai = my_einsum2("KP,kFTP->kFT", board_black + board_white, a_bougai)
-    
-    board_black_attack = my_einsum2("kF,kFT,kFT->kT", board_black, a_move[:k_dim], ~bougai).to('cpu', dtype=torch.bool)
-    board_white_attack = my_einsum2("kF,kFT,kFT->kT", board_white, a_oppo_move[:k_dim], ~bougai).to('cpu', dtype=torch.bool)
+    board_black_attack, board_white_attack = [_.squeeze(0).to('cpu', dtype=torch.bool) for _ in calc_attack(board_black, board_white)]
     
     mat = torch.cat((board_black.to('cpu', dtype=torch.bool), hand_black.to('cpu', dtype=torch.bool), board_white.to('cpu', dtype=torch.bool), hand_white.to('cpu', dtype=torch.bool), board_black_attack, board_white_attack), dim=0).reshape(-1, 9, 9)
     return mat
     
-def boards_2_features(boards, is_white, func=board_2_features2):
+def boards_2_features(boards, is_white, func=board_2_features2, to_cuda=True):
     feature = func(boards[0], is_white)
     features = torch.zeros(len(boards), feature.shape[0], 9, 9, dtype=torch.bool)
     features[0] = feature
     for f_id in range(1, len(boards)):
         features[f_id] = func(boards[f_id], is_white)
-    return features.to('cuda', dtype=torch.float32)
+    return features.to('cuda', dtype=torch.float32) if to_cuda else features
     
 
 def boltzmann(logits, temperature):
@@ -217,22 +220,30 @@ def get_bestmoves_from_logitss(boards, logitss):
     return bestmoves
     
     
-def get_bestmoves_from_legal_mats_and_logitss(legal_mats, logitss, is_white):
+def get_bestmoves_from_legal_mats_and_logitss(legal_mats, logitss, is_white, return_usi=True):
     bestmoves = []
+    legal_labelss = []
     usiss = action_mat_2_usi(legal_mats, is_white, None)
     
     for idx in range(legal_mats.shape[0]):
         logits = logitss[idx]
         usis = usiss[idx]
         
-        legal_logits = []
-        legal_moves = []
+        legal_logits = []    # index to logits
+        legal_moves = []     # index to usi
+        legal_labels = set()
+        index_to_labels = []
         for usi in usis:
-            legal_moves.append(usi)
             label = usi_2_act_id(usi, is_white)
+            if label in legal_labels: continue
+            legal_labels.add(label)
+            
+            index_to_labels.append(label)
+            legal_moves.append(usi)
             legal_logits.append(logits[label].item())
             
         selected_index = boltzmann(numpy.array(legal_logits, dtype=numpy.float32), 0.5)
         #selected_index = greedy(legal_logits)
-        bestmoves.append(legal_moves[selected_index])
-    return bestmoves
+        bestmoves.append(legal_moves[selected_index] if return_usi else index_to_labels[selected_index])
+        legal_labelss.append(legal_labels)
+    return bestmoves, legal_labelss

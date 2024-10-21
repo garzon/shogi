@@ -88,13 +88,15 @@ if __name__ == '__main__':
     model.eval()
     '''
     
+    print('Loading training data.')
     with open(TRAIN_PICKLE, 'rb') as f:
         positions = pickle.load(f)
     print('Loaded.')
     
     
-    e_value = 5.0
-    e_value_miss = 5.0
+    e_value = 3.0
+    e_value_miss = 3.0
+    e_value_illegal = 5.0
 
     for epoch in range(500):
         x, policy_labels, value_labels = mini_batch(positions)
@@ -114,21 +116,38 @@ if __name__ == '__main__':
         policy_loss = policy_loss_fn(policy_outputs, policy_labels)
         value_loss = e_value * value_loss_fn2(value_outputs, value_labels)
 
-        board_black, hand_black, board_white, hand_white, _, _2 = map(lambda _:_.to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim, k_dim, k_dim], dim=1))
-        boards = mat_2_boards(board_black, hand_black, board_white, hand_white, False)
+        board_black, hand_black, board_white, hand_white, _, _2 = map(lambda _:(_!=0).to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim, k_dim, k_dim], dim=1))
+        fake_is_white = False
         
-        #bestmoves_usi = get_bestmoves_from_logitss(boards, policy_outputs)
         legal_mats = calc_legal_moves_mat(board_black, hand_black, board_white)
-        bestmoves_usi = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, False)
+        bestmoves_label, legal_labelss = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, fake_is_white, return_usi=False)
         
+        legal_policy = torch.zeros(policy_outputs.shape[0], policy_outputs.shape[1], dtype=torch.float32)
+        for b in range(policy_outputs.shape[0]):
+            labels = legal_labelss[b]
+            for label in labels:
+                legal_policy[b, label] = policy_outputs[b, label]
+        illegal_policy_loss = e_value_illegal * value_loss_fn2(policy_outputs, legal_policy.to('cuda'))
+                
+        
+        A = get_action_mat(bestmoves_label)
+        board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A, to_cpu=False)
+        black_attack, white_attack = calc_attack(board_black, board_white)
+        x2 = torch.cat(to_gpu_float32(board_black, hand_black, board_white, hand_white, black_attack, white_attack), dim=1).reshape(-1, latest_features_dim, 9, 9).contiguous()
+        
+        '''
+        boards = mat_2_boards(board_black, hand_black, board_white, hand_white, fake_is_white)
+        # bestmoves_usi = get_bestmoves_from_logitss(boards, policy_outputs)
+        bestmoves_usi, legal_labelss = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, False)
         x2 = torch.zeros(x.shape[0], K_dim*2, 9, 9, dtype=torch.bool)
         for i in range(len(boards)):
             boards[i].push_usi(bestmoves_usi[i])
         x2 = boards_2_features(boards, True)
+        '''
         
         _, value_outputs2 = model2(x2)
         value_miss_loss = e_value_miss * my_value_miss_loss(1.0-value_outputs2, value_outputs)
-        loss2 = policy_loss + value_loss + value_miss_loss
+        loss2 = policy_loss + illegal_policy_loss + value_loss + value_miss_loss
         
         optimizer2.zero_grad()
         loss2.backward()
