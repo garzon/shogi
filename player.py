@@ -71,12 +71,43 @@ class PolicyPlayer(BasePlayer):
         bestmove = legal_moves[selected_index]
 
         print('bestmove', bestmove.usi())
+        
+        
+class ValuePlayer(PolicyPlayer):
+    def go(self):
+        if self.board.is_game_over():
+            print('bestmove resign')
+            return
+
+        x = boards_2_features([self.board], self.board.turn == shogi.WHITE)#, func=board_2_features)
+
+        with torch.no_grad():
+            best_move_usi = ''
+            best_s = -9999999
+            
+            legal_moves = [_ for _ in self.board.legal_moves]
+            for move in legal_moves:
+                usi = move.usi()
+                self.board.push(shogi.Move.from_usi(usi))
+                
+                x = boards_2_features([self.board], self.board.turn != shogi.WHITE)
+                
+                _, value_outputs = self.model(x)
+                s = int((1.0-torch.nn.functional.sigmoid(value_outputs[0][0]))*60000-30000)
+                if s > best_s:
+                    best_move_usi = usi
+                    best_s = s
+                self.board.pop()
+            
+            print('info score cp', best_s)
+            print('info string', best_s)
+            print('bestmove', best_move_usi)
 
 if __name__=='__main__':
     from pydlshogi.usi.usi import *
 
     try:
-        player = PolicyPlayer()
+        player = ValuePlayer()
         usi(player)
     except Exception as e:
         print('info string', traceback.format_exc().replace('\n', '').replace('\r', ''))

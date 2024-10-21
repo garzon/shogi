@@ -18,12 +18,21 @@ latest_features_dim = FEATURES_DIM
 
 e_max_policy_loss = 3.0
 e_value = 5.0
-e_value_miss = 5.0
-e_policy_illegal = 8.0
+e_value_miss = 10.0
+#e_policy_illegal = 8.0
 
-MODEL1_PATH = "output/model1-9"
-MODEL2_PATH = "output/model2-9"
-TRAINING_DATA_PATH = ['output/train_list_feature3-5000.ckpt']
+MODEL1_PATH = "output/model1-11"
+MODEL2_PATH = "output/model2-11"
+TRAINING_DATA_PATH = [
+    'output/train_list_feature3-5000.ckpt',
+    'output/train_list_feature3-4500.ckpt',
+    'output/train_list_feature3-3000.ckpt',
+    #'output/train_Suisho10Mn_psv_-0.ckpt',
+    #'output/train_Suisho10Mn_psv_-450000.ckpt',
+]
+#TRAINING_DATA_PATH = [
+#    'output/train_Suisho10Mn_psv_-0.ckpt',
+#]
 
 class Block(nn.Module):
     def __init__(self):
@@ -100,7 +109,7 @@ if __name__ == '__main__':
     model.eval()
     '''
     
-    if os.path.isfile(MODEL1_PATH):
+    if os.path.isfile(MODEL2_PATH):
         model1.load_state_dict(torch.load(MODEL1_PATH, weights_only=True))
         model2.load_state_dict(torch.load(MODEL2_PATH, weights_only=True))
         print("Trained model loaded.")
@@ -113,10 +122,10 @@ if __name__ == '__main__':
             positions += pickle.load(f)
     print('Loaded.')
     
-    for epoch in range(5000):
+    for epoch in range(1000000):
         x, policy_labels, value_labels = mini_batch(positions)
     
-        '''
+        
         policy_outputs, value_outputs = model1(x)
         policy_loss = policy_loss_fn(policy_outputs, policy_labels)
         value_loss = value_loss_fn1(value_outputs, (value_labels >= 0.5).to(dtype=torch.float32))
@@ -124,7 +133,7 @@ if __name__ == '__main__':
 
         optimizer1.zero_grad()
         loss1.backward()
-        optimizer1.step()'''
+        optimizer1.step()
         
         # ==========================
         
@@ -142,7 +151,8 @@ if __name__ == '__main__':
             
             legal_mats = calc_legal_moves_mat(board_black, hand_black, board_white)
             bestmoves_label, legal_labelss = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, fake_is_white, return_usi=False)
-            
+
+            '''
             policy_outputs = F.softmax(policy_outputs, dim=1)
             legal_policy = torch.zeros(policy_outputs.shape[0], policy_outputs.shape[1], dtype=torch.float32)
             for b in range(policy_outputs.shape[0]):
@@ -150,7 +160,7 @@ if __name__ == '__main__':
                 for label in labels:
                     legal_policy[b, label] = policy_outputs[b, label]
             illegal_policy_loss = e_policy_illegal * value_loss_fn2(policy_outputs, legal_policy.to('cuda'))
-            
+            '''
             
             A = get_action_mat(bestmoves_label)
             board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A, to_cpu=False)
@@ -170,21 +180,21 @@ if __name__ == '__main__':
         _, value_outputs2 = model2(x2)
         value_outputs2 = F.sigmoid(value_outputs2)
         value_miss_loss = e_value_miss * value_loss_fn3(1.0-value_outputs2, value_outputs)
-        loss2 = policy_loss + illegal_policy_loss + value_loss + value_miss_loss
+        loss2 = policy_loss + value_loss + value_miss_loss #+ illegal_policy_loss
         
         optimizer2.zero_grad()
         loss2.backward()
         optimizer2.step()
 
         # Print the loss
-        if epoch % 30 == 0:
-            print(f"Epoch {epoch + 1}, Loss2: {loss2.item()}")
-            #print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
+        if epoch % 500 == 0:
+            #print(f"Epoch {epoch + 1}, Loss2: {loss2.item()}")
+            print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
         
-        if epoch % 500 == 499:
+        if epoch % 10000 == 9999:
             print('saving @' + str(epoch))
-            #torch.save(model1.state_dict(), MODEL1_PATH+"."+str(epoch))
+            torch.save(model1.state_dict(), MODEL1_PATH+"."+str(epoch))
             torch.save(model2.state_dict(), MODEL2_PATH+"."+str(epoch))
         
-    #torch.save(model1.state_dict(), MODEL1_PATH)
+    torch.save(model1.state_dict(), MODEL1_PATH)
     torch.save(model2.state_dict(), MODEL2_PATH)

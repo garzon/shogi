@@ -9,7 +9,7 @@ from main import *
 
 #init_board_black, init_hand_black, init_board_white, init_hand_white = map(lambda _:_.to('cuda'), board_2_mat(shogi.Board(), False))
 
-SKIP = 0
+SKIP = 450000
 TRAIN_PICKLE = 'output/train_Suisho10Mn_psv_-{}.ckpt'.format(SKIP)
 def save_features(positions):
     print('Saving', len(positions))
@@ -27,7 +27,7 @@ def read_psv(psv_file="Suisho10Mn_psv.bin", num=3000000, save_every=50000):
     last_gamePly = 0
     for idx in range(SKIP, len(psfens)):
         if idx % 1000 == 0: print(idx)
-        if idx >= num: return positions
+        if idx-SKIP >= num: return positions
         
         win_color = cshogi.BLACK if psfens[idx]['game_result'] == 0 else shogi.WHITE
         
@@ -41,9 +41,7 @@ def read_psv(psv_file="Suisho10Mn_psv.bin", num=3000000, save_every=50000):
             last_gameStep = psfens[idx]['gamePly']
         last_gamePly = psfens[idx]['gamePly']
         
-        win = 0.5 + 0.5 * ((last_gamePly*1.0 / last_gameStep * 10) ** 2 / 100)
-        if win_color != board.turn:
-            win = 1.0 - win
+        win = (min(2000, max(-2000, psfens[idx]['score']))+2000.0)/4000.0
 
         positions.append((mat, move_label, win))
 
@@ -109,17 +107,17 @@ def poss_to_drop(win, max_x=6):
     poss = step_percentage*3.3333*(max_x-min_x)+min_x
     return torch.nn.functional.sigmoid(poss)
     
-def mini_batch(positions, batchsize=15, cons_size=6, device=torch.device("cuda")):
+def mini_batch(positions, batchsize=100, cons_size=6, device=torch.device("cuda")):
     mini_batch_data = []
     mini_batch_move = []
     mini_batch_win = []
-    for _ in range(batchsize):
+    while len(mini_batch_win) < batchsize:
         ind = random.randint(0, len(positions)-cons_size)
         _, _, win = positions[ind]
-        step_percentage = abs(win-0.5)*2
-        if step_percentage < 0.3:
-            if random.random() > poss_to_drop(win):
-                continue
+        #step_percentage = abs(win-0.5)*2
+        #if step_percentage < 0.3:
+        #    if random.random() > poss_to_drop(win):
+        #        continue
         for i in range(ind, ind+cons_size):
             features, move, win = positions[i]
             mini_batch_data.append(features)

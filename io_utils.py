@@ -1,5 +1,6 @@
 import shogi
 import torch
+import cshogi
 
 from shogi_rule_constants import *
 
@@ -60,6 +61,9 @@ def from_to_2_act_id(move_from, move_to, move_prom, move_drop_piece_type=None):
 def get_action_mat(act_ids):
     A = torch.zeros(len(act_ids), K_dim, F_dim, T_dim, Pr_dim, dtype=torch.bool)
     for ind, act_id in enumerate(act_ids):
+        if act_id == -1:
+            A[ind, 0, 0, 0, 0] = True # no-op. bug: this results in taking the piece @ 0,0
+            continue
         move_direction, t = divmod(act_id, 81)
         if move_direction >= len(MOVE_DIRECTION):
             piece_type = move_direction - len(MOVE_DIRECTION)
@@ -75,9 +79,9 @@ def get_action_mat(act_ids):
             A[ind, :, :, t, prom] = can_goto
             A[ind, k_dim:, :, t, prom] = False
     return A
-a_id_2_mat = get_action_mat(list(range(9*9*MOVE_DIRECTION_LABEL_NUM)))
+a_id_2_mat = get_action_mat(list(range(-1, 9*9*MOVE_DIRECTION_LABEL_NUM)))
 del get_action_mat
-get_action_mat = lambda act_ids: a_id_2_mat[act_ids]
+get_action_mat = lambda act_ids: a_id_2_mat[[_+1 for _ in act_ids]]
 
 def action_mat_2_usi(A, is_white, is_unique_with_S_black):
     if is_unique_with_S_black is not None:
@@ -165,11 +169,15 @@ def board_2_mat(board, is_white):
         return board_black, hand_black, board_white, hand_white
     return invert_order(board_black, hand_black, board_white, hand_white)
 
-CPIECE_TYPES = [Empty,
+CPIECE_TYPES = [_,
     BPawn, BLance, BKnight, BSilver, BBishop, BRook, BGold, BKing,
     BProPawn, BProLance, BProKnight, BProSilver, BHorse, BDragon, _, _,
     WPawn, WLance, WKnight, WSilver, WBishop, WRook, WGold, WKing,
     WProPawn, WProLance, WProKnight, WProSilver, WHorse, WDragon] = range(31)
+CPIECE_2_PIECES_TYPE = {
+    BPawn:PAWN, BLance:LANCE, BKnight:KNIGHT, BSilver:SILVER, BBishop:BISHOP, BRook:ROOK, BGold:GOLD, BKing:KING,
+    BProPawn:PROM_PAWN, BProLance:PROM_LANCE, BProKnight:PROM_KNIGHT, BProSilver:PROM_SILVER, BHorse:PROM_BISHOP, BDragon:PROM_ROOK
+}
 def get_cboard_piece(cboard, f):
     cpiece = cboard.piece(f)
     if cpiece == 0: return None
@@ -177,7 +185,8 @@ def get_cboard_piece(cboard, f):
     if cpiece >= 17:
         color = shogi.WHITE
         cpiece -= 16
-    return shogi.Piece(cpiece, color)
+    piece = shogi.Piece(CPIECE_2_PIECES_TYPE[cpiece]+1, color)
+    return piece
 
 def cboard_2_mat(cboard, is_white):
     board_black = torch.zeros(1, k_dim, F_dim, dtype=torch.bool)
@@ -188,10 +197,12 @@ def cboard_2_mat(cboard, is_white):
         piece = get_cboard_piece(cboard, f)
         if piece is None: continue
         k = piece.piece_type - 1
+        col, row = divmod(f, 9)
+        board_f = row * 9 + (8 - col)
         if piece.color == shogi.BLACK:
-            board_black[0, k, f] = True
+            board_black[0, k, board_f] = True
         else:
-            board_white[0, k, f] = True
+            board_white[0, k, board_f] = True
     for k in HAND_PIECE_TYPES:
         k_id = k - k_dim
         for _ in range(cboard.pieces_in_hand[shogi.BLACK][k_id]):
@@ -290,7 +301,7 @@ def get_bestmoves_from_legal_mats_and_logitss(legal_mats, logitss, is_white, ret
             index_to_labels.append(label)
             legal_moves.append(usi)
             legal_logits.append(logits[label].item())
-            
+        
         selected_index = boltzmann(numpy.array(legal_logits, dtype=numpy.float32), 0.5)
         #selected_index = greedy(legal_logits)
         bestmoves.append(legal_moves[selected_index] if return_usi else index_to_labels[selected_index])
