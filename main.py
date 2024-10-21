@@ -103,7 +103,7 @@ if __name__ == '__main__':
         kif = shogi.KIF.Parser.parse_file("my.kif")[0]['moves']
         board = shogi.Board()
         step = -1
-        for step in range(3):
+        for step in range(0):
             board.push(shogi.Move.from_usi(kif[step]))
         step += 1
 
@@ -126,6 +126,26 @@ if __name__ == '__main__':
                 print('Step', step, board.kif_str())
                 print(mat_2_boards(board_black, hand_black, board_white, hand_white, is_white)[0].kif_str())
                 raise 'legal moves not matched'
+                
+            black_attack, white_attack = calc_attack(board_black, board_white)
+            for k in range(k_dim):
+                for p in range(P_dim):
+                    if black_attack[0, k, p]:
+                        player = shogi.WHITE if is_white else shogi.BLACK
+                        if is_white: sq = 80 - p
+                        else: sq = p
+                        if not board.is_attacked_by(player, sq, [k+1]):
+                            print(k, divmod(p, 9), 'is not attacked by', player)
+                            raise 'attack error'
+            for k in range(k_dim):
+                for p in range(P_dim):
+                    if white_attack[0, k, p]:
+                        player = shogi.BLACK if is_white else shogi.WHITE
+                        if is_white: sq = 80 - p
+                        else: sq = p
+                        if not board.is_attacked_by(player, sq, [k+1]):
+                            print(k, divmod(p, 9), 'is not attacked by', player)
+                            raise 'attack error'
             
             board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A)
             board.push(shogi.Move.from_usi(usi_move))

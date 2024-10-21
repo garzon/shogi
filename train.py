@@ -16,13 +16,14 @@ ch = 192
 fcl = 256
 latest_features_dim = FEATURES_DIM
 
+e_max_policy_loss = 3.0
 e_value = 5.0
-e_value_miss = 2.0
-e_value_illegal = 8.0
+e_value_miss = 5.0
+e_policy_illegal = 8.0
 
-MODEL1_PATH = "output/model1-5.ckpt"
-MODEL2_PATH = "output/model2-5.ckpt"
-TRAINING_DATA_PATH = 'output/train_list_feature3.ckpt'
+MODEL1_PATH = "output/model1-9"
+MODEL2_PATH = "output/model2-9"
+TRAINING_DATA_PATH = ['output/train_list_feature3-5000.ckpt']
 
 class Block(nn.Module):
     def __init__(self):
@@ -38,7 +39,7 @@ class Block(nn.Module):
         return F.relu(x + h2)
 
 class PolicyValueResnet(nn.Module):
-    def __init__(self, features_dim = K_dim*2, blocks = 5):
+    def __init__(self, features_dim = K_dim*2, blocks = 10):
         super(PolicyValueResnet, self).__init__()
         self.blocks = blocks
       
@@ -76,16 +77,18 @@ def my_value_miss_loss(output, target):
 
 
 if __name__ == '__main__':
-    model1 = PolicyValueResnet(latest_features_dim, blocks=5).cuda()
-    model2 = PolicyValueResnet(latest_features_dim, blocks=5).cuda()
+    model1 = PolicyValueResnet(latest_features_dim, blocks=10).cuda()
+    model2 = PolicyValueResnet(latest_features_dim, blocks=10).cuda()
 
     optimizer1 = optim.Adam(model1.parameters(), lr=0.001)
     optimizer2 = optim.Adam(model2.parameters(), lr=0.001)
 
     # Define the loss function
     policy_loss_fn = nn.CrossEntropyLoss()
+    policy_loss_fn2 = nn.CrossEntropyLoss(reduction='none')
     value_loss_fn1 = nn.BCEWithLogitsLoss()
     value_loss_fn2 = nn.MSELoss()
+    value_loss_fn3 = nn.BCELoss()
 
     '''
     # Generate some training data
@@ -103,13 +106,17 @@ if __name__ == '__main__':
         print("Trained model loaded.")
     
     print('Loading training data.')
-    with open(TRAINING_DATA_PATH, 'rb') as f:
-        positions = pickle.load(f)
+    positions = []
+    for p in TRAINING_DATA_PATH:
+        print('Loading training data from', p)
+        with open(p, 'rb') as f:
+            positions += pickle.load(f)
     print('Loaded.')
     
     for epoch in range(5000):
         x, policy_labels, value_labels = mini_batch(positions)
     
+        '''
         policy_outputs, value_outputs = model1(x)
         policy_loss = policy_loss_fn(policy_outputs, policy_labels)
         value_loss = value_loss_fn1(value_outputs, (value_labels >= 0.5).to(dtype=torch.float32))
@@ -117,14 +124,17 @@ if __name__ == '__main__':
 
         optimizer1.zero_grad()
         loss1.backward()
-        optimizer1.step()
+        optimizer1.step()'''
         
         # ==========================
         
+        e_policy_loss = e_max_policy_loss * poss_to_drop(torch.abs(value_labels.squeeze(1)-0.5)*6.0, 3.0)
+        
         policy_outputs, value_outputs = model2(x)
+        policy_loss = torch.mean(policy_loss_fn2(policy_outputs, policy_labels) * e_policy_loss)
+        value_loss = e_value * value_loss_fn1(value_outputs, value_labels)
         value_outputs = F.sigmoid(value_outputs)
-        policy_loss = policy_loss_fn(policy_outputs, policy_labels)
-        value_loss = e_value * value_loss_fn2(value_outputs, value_labels)
+        
 
         with torch.no_grad():
             board_black, hand_black, board_white, hand_white, _, _2 = map(lambda _:(_!=0).to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim, k_dim, k_dim], dim=1))
@@ -133,13 +143,13 @@ if __name__ == '__main__':
             legal_mats = calc_legal_moves_mat(board_black, hand_black, board_white)
             bestmoves_label, legal_labelss = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, fake_is_white, return_usi=False)
             
-            policy_outputs = torch.nn.Softmax(dim=1)(policy_outputs)
+            policy_outputs = F.softmax(policy_outputs, dim=1)
             legal_policy = torch.zeros(policy_outputs.shape[0], policy_outputs.shape[1], dtype=torch.float32)
             for b in range(policy_outputs.shape[0]):
                 labels = legal_labelss[b]
                 for label in labels:
                     legal_policy[b, label] = policy_outputs[b, label]
-            illegal_policy_loss = e_value_illegal * value_loss_fn2(policy_outputs, legal_policy.to('cuda'))
+            illegal_policy_loss = e_policy_illegal * value_loss_fn2(policy_outputs, legal_policy.to('cuda'))
             
             
             A = get_action_mat(bestmoves_label)
@@ -159,7 +169,7 @@ if __name__ == '__main__':
         
         _, value_outputs2 = model2(x2)
         value_outputs2 = F.sigmoid(value_outputs2)
-        value_miss_loss = e_value_miss * my_value_miss_loss(1.0-value_outputs2, value_outputs)
+        value_miss_loss = e_value_miss * value_loss_fn3(1.0-value_outputs2, value_outputs)
         loss2 = policy_loss + illegal_policy_loss + value_loss + value_miss_loss
         
         optimizer2.zero_grad()
@@ -168,12 +178,13 @@ if __name__ == '__main__':
 
         # Print the loss
         if epoch % 30 == 0:
-            print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
+            print(f"Epoch {epoch + 1}, Loss2: {loss2.item()}")
+            #print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
         
         if epoch % 500 == 499:
             print('saving @' + str(epoch))
-            torch.save(model1.state_dict(), MODEL1_PATH+"."+str(epoch))
+            #torch.save(model1.state_dict(), MODEL1_PATH+"."+str(epoch))
             torch.save(model2.state_dict(), MODEL2_PATH+"."+str(epoch))
         
-    torch.save(model1.state_dict(), MODEL1_PATH)
+    #torch.save(model1.state_dict(), MODEL1_PATH)
     torch.save(model2.state_dict(), MODEL2_PATH)

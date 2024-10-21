@@ -165,15 +165,52 @@ def board_2_mat(board, is_white):
         return board_black, hand_black, board_white, hand_white
     return invert_order(board_black, hand_black, board_white, hand_white)
 
+CPIECE_TYPES = [Empty,
+    BPawn, BLance, BKnight, BSilver, BBishop, BRook, BGold, BKing,
+    BProPawn, BProLance, BProKnight, BProSilver, BHorse, BDragon, _, _,
+    WPawn, WLance, WKnight, WSilver, WBishop, WRook, WGold, WKing,
+    WProPawn, WProLance, WProKnight, WProSilver, WHorse, WDragon] = range(31)
+def get_cboard_piece(cboard, f):
+    cpiece = cboard.piece(f)
+    if cpiece == 0: return None
+    color = shogi.BLACK
+    if cpiece >= 17:
+        color = shogi.WHITE
+        cpiece -= 16
+    return shogi.Piece(cpiece, color)
+
+def cboard_2_mat(cboard, is_white):
+    board_black = torch.zeros(1, k_dim, F_dim, dtype=torch.bool)
+    board_white = torch.zeros(1, k_dim, F_dim, dtype=torch.bool)
+    hand_black = torch.zeros(1, K_dim - k_dim, F_dim, dtype=torch.bool)
+    hand_white = torch.zeros(1, K_dim - k_dim, F_dim, dtype=torch.bool)
+    for f in range(F_dim):
+        piece = get_cboard_piece(cboard, f)
+        if piece is None: continue
+        k = piece.piece_type - 1
+        if piece.color == shogi.BLACK:
+            board_black[0, k, f] = True
+        else:
+            board_white[0, k, f] = True
+    for k in HAND_PIECE_TYPES:
+        k_id = k - k_dim
+        for _ in range(cboard.pieces_in_hand[shogi.BLACK][k_id]):
+            hand_black[0, k_id, 80-_] = True
+        for _ in range(cboard.pieces_in_hand[shogi.WHITE][k_id]):
+            hand_white[0, k_id, 80-_] = True
+    if not is_white:
+        return board_black, hand_black, board_white, hand_white
+    return invert_order(board_black, hand_black, board_white, hand_white)
+
 def board_2_features(board, is_white):
     mat = board_2_mat(board, board.turn == shogi.WHITE)
     mat = torch.cat(mat, dim=1)[0].reshape(-1, 9, 9)
     return mat
     
 def calc_attack(board_black, board_white):
-    bougai = my_einsum2("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
-    board_black_attack = my_einsum2("BkF,kFT,BkFT->BkT", board_black, a_move[:k_dim], ~bougai)
-    board_white_attack = my_einsum2("BkF,kFT,BkFT->BkT", board_white, a_oppo_move[:k_dim], ~bougai)
+    bougai = ~my_einsum2("BKP,kFTP->BkFT", board_black + board_white, a_bougai)
+    board_black_attack = my_einsum2("BkF,kFT,BkFT->BkT", board_black, a_move[:k_dim], bougai)
+    board_white_attack = my_einsum2("BkF,kFT,BkFT->BkT", board_white, a_oppo_move[:k_dim], bougai)
     return board_black_attack, board_white_attack
     
 def mats_2_features2(board_black, hand_black, board_white, hand_white, board_black_attack, board_white_attack):
@@ -182,6 +219,14 @@ def mats_2_features2(board_black, hand_black, board_white, hand_white, board_bla
     
 def board_2_features2(board, is_white):
     board_black, hand_black, board_white, hand_white = map(lambda _:_.to('cuda'), board_2_mat(board, board.turn == shogi.WHITE))
+    
+    board_black_attack, board_white_attack = [_.squeeze(0).to('cpu', dtype=torch.bool) for _ in calc_attack(board_black, board_white)]
+    board_black, hand_black, board_white, hand_white = map(lambda _:_.squeeze(0), [board_black, hand_black, board_white, hand_white])
+    
+    return mats_2_features2(board_black, hand_black, board_white, hand_white, board_black_attack, board_white_attack)
+    
+def cboard_2_features2(board, is_white):
+    board_black, hand_black, board_white, hand_white = map(lambda _:_.to('cuda'), cboard_2_mat(board, board.turn == shogi.WHITE))
     
     board_black_attack, board_white_attack = [_.squeeze(0).to('cpu', dtype=torch.bool) for _ in calc_attack(board_black, board_white)]
     board_black, hand_black, board_white, hand_white = map(lambda _:_.squeeze(0), [board_black, hand_black, board_white, hand_white])
