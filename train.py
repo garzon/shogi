@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import pickle
 import shogi
+import os
 
 from constants import *
 from main import *
@@ -14,6 +15,14 @@ from io_utils import *
 ch = 192
 fcl = 256
 latest_features_dim = FEATURES_DIM
+
+e_value = 5.0
+e_value_miss = 2.0
+e_value_illegal = 8.0
+
+MODEL1_PATH = "output/model1-5.ckpt"
+MODEL2_PATH = "output/model2-5.ckpt"
+TRAINING_DATA_PATH = 'output/train_list_feature3.ckpt'
 
 class Block(nn.Module):
     def __init__(self):
@@ -63,7 +72,7 @@ class PolicyValueResnet(nn.Module):
         return u_policy, u_value
         
 def my_value_miss_loss(output, target):
-    return torch.mean(output-target)
+    return torch.mean((output-target)*torch.abs(output-target))
 
 
 if __name__ == '__main__':
@@ -88,17 +97,17 @@ if __name__ == '__main__':
     model.eval()
     '''
     
+    if os.path.isfile(MODEL1_PATH):
+        model1.load_state_dict(torch.load(MODEL1_PATH, weights_only=True))
+        model2.load_state_dict(torch.load(MODEL2_PATH, weights_only=True))
+        print("Trained model loaded.")
+    
     print('Loading training data.')
-    with open(TRAIN_PICKLE, 'rb') as f:
+    with open(TRAINING_DATA_PATH, 'rb') as f:
         positions = pickle.load(f)
     print('Loaded.')
     
-    
-    e_value = 3.0
-    e_value_miss = 3.0
-    e_value_illegal = 5.0
-
-    for epoch in range(500):
+    for epoch in range(5000):
         x, policy_labels, value_labels = mini_batch(positions)
     
         policy_outputs, value_outputs = model1(x)
@@ -113,27 +122,30 @@ if __name__ == '__main__':
         # ==========================
         
         policy_outputs, value_outputs = model2(x)
+        value_outputs = F.sigmoid(value_outputs)
         policy_loss = policy_loss_fn(policy_outputs, policy_labels)
         value_loss = e_value * value_loss_fn2(value_outputs, value_labels)
 
-        board_black, hand_black, board_white, hand_white, _, _2 = map(lambda _:(_!=0).to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim, k_dim, k_dim], dim=1))
-        fake_is_white = False
-        
-        legal_mats = calc_legal_moves_mat(board_black, hand_black, board_white)
-        bestmoves_label, legal_labelss = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, fake_is_white, return_usi=False)
-        
-        legal_policy = torch.zeros(policy_outputs.shape[0], policy_outputs.shape[1], dtype=torch.float32)
-        for b in range(policy_outputs.shape[0]):
-            labels = legal_labelss[b]
-            for label in labels:
-                legal_policy[b, label] = policy_outputs[b, label]
-        illegal_policy_loss = e_value_illegal * value_loss_fn2(policy_outputs, legal_policy.to('cuda'))
-                
-        
-        A = get_action_mat(bestmoves_label)
-        board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A, to_cpu=False)
-        black_attack, white_attack = calc_attack(board_black, board_white)
-        x2 = torch.cat(to_gpu_float32(board_black, hand_black, board_white, hand_white, black_attack, white_attack), dim=1).reshape(-1, latest_features_dim, 9, 9).contiguous()
+        with torch.no_grad():
+            board_black, hand_black, board_white, hand_white, _, _2 = map(lambda _:(_!=0).to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim, k_dim, k_dim], dim=1))
+            fake_is_white = False
+            
+            legal_mats = calc_legal_moves_mat(board_black, hand_black, board_white)
+            bestmoves_label, legal_labelss = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, fake_is_white, return_usi=False)
+            
+            policy_outputs = torch.nn.Softmax(dim=1)(policy_outputs)
+            legal_policy = torch.zeros(policy_outputs.shape[0], policy_outputs.shape[1], dtype=torch.float32)
+            for b in range(policy_outputs.shape[0]):
+                labels = legal_labelss[b]
+                for label in labels:
+                    legal_policy[b, label] = policy_outputs[b, label]
+            illegal_policy_loss = e_value_illegal * value_loss_fn2(policy_outputs, legal_policy.to('cuda'))
+            
+            
+            A = get_action_mat(bestmoves_label)
+            board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A, to_cpu=False)
+            black_attack, white_attack = calc_attack(board_black, board_white)
+            x2 = torch.cat(to_gpu_float32(board_black, hand_black, board_white, hand_white, black_attack, white_attack), dim=1).reshape(-1, latest_features_dim, 9, 9).contiguous()
         
         '''
         boards = mat_2_boards(board_black, hand_black, board_white, hand_white, fake_is_white)
@@ -146,6 +158,7 @@ if __name__ == '__main__':
         '''
         
         _, value_outputs2 = model2(x2)
+        value_outputs2 = F.sigmoid(value_outputs2)
         value_miss_loss = e_value_miss * my_value_miss_loss(1.0-value_outputs2, value_outputs)
         loss2 = policy_loss + illegal_policy_loss + value_loss + value_miss_loss
         
@@ -154,8 +167,13 @@ if __name__ == '__main__':
         optimizer2.step()
 
         # Print the loss
-        if epoch % 50 == 0:
+        if epoch % 30 == 0:
             print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
         
-    torch.save(model1.state_dict(), "output/model1-3.ckpt")
-    torch.save(model2.state_dict(), "output/model2-3.ckpt")
+        if epoch % 500 == 499:
+            print('saving @' + str(epoch))
+            torch.save(model1.state_dict(), MODEL1_PATH+"."+str(epoch))
+            torch.save(model2.state_dict(), MODEL2_PATH+"."+str(epoch))
+        
+    torch.save(model1.state_dict(), MODEL1_PATH)
+    torch.save(model2.state_dict(), MODEL2_PATH)

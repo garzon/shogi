@@ -52,7 +52,7 @@ class PolicyPlayer(BasePlayer):
         with torch.no_grad():
             policy_outputs, value_outputs = self.model(x)
             logits = policy_outputs[0]
-            s = max(-3000, min(3000, int(value_outputs[0][0]*5000-2500)))
+            s = int(torch.nn.functional.sigmoid(value_outputs[0][0])*60000-30000)
             print('info score cp', s)
             print('info string', s)
             probabilities = F.softmax(logits).cpu()

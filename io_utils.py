@@ -176,13 +176,17 @@ def calc_attack(board_black, board_white):
     board_white_attack = my_einsum2("BkF,kFT,BkFT->BkT", board_white, a_oppo_move[:k_dim], ~bougai)
     return board_black_attack, board_white_attack
     
+def mats_2_features2(board_black, hand_black, board_white, hand_white, board_black_attack, board_white_attack):
+    return torch.cat((board_black.to('cpu', dtype=torch.bool), hand_black.to('cpu', dtype=torch.bool), board_white.to('cpu', dtype=torch.bool), hand_white.to('cpu', dtype=torch.bool), board_black_attack, board_white_attack), dim=0).reshape(-1, 9, 9)
+    
+    
 def board_2_features2(board, is_white):
     board_black, hand_black, board_white, hand_white = map(lambda _:_.to('cuda'), board_2_mat(board, board.turn == shogi.WHITE))
     
     board_black_attack, board_white_attack = [_.squeeze(0).to('cpu', dtype=torch.bool) for _ in calc_attack(board_black, board_white)]
+    board_black, hand_black, board_white, hand_white = map(lambda _:_.squeeze(0), [board_black, hand_black, board_white, hand_white])
     
-    mat = torch.cat((board_black.to('cpu', dtype=torch.bool), hand_black.to('cpu', dtype=torch.bool), board_white.to('cpu', dtype=torch.bool), hand_white.to('cpu', dtype=torch.bool), board_black_attack, board_white_attack), dim=0).reshape(-1, 9, 9)
-    return mat
+    return mats_2_features2(board_black, hand_black, board_white, hand_white, board_black_attack, board_white_attack)
     
 def boards_2_features(boards, is_white, func=board_2_features2, to_cuda=True):
     feature = func(boards[0], is_white)

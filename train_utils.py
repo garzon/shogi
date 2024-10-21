@@ -4,8 +4,12 @@ import pickle
 import random
 
 from io_utils import *
+from main import *
 
-TRAIN_PICKLE = 'output/train_list_feature2.ckpt'
+init_board_black, init_hand_black, init_board_white, init_hand_white = map(lambda _:_.to('cuda'), board_2_mat(shogi.Board(), False))
+
+SKIP = 5000
+TRAIN_PICKLE = 'output/train_list_feature3-{}.ckpt'.format(SKIP)
 def save_features(positions):
     print('Saving', len(positions))
     with open(TRAIN_PICKLE, 'wb') as f:
@@ -13,14 +17,16 @@ def save_features(positions):
     print('Saving done')
 
 BASE_FILE_PATH = "D:\\github\\pydlshogi\\"
-def read_kifu(kifu_list_file="kifu.txt", num=10000, save_every=500):
+def read_kifu(kifu_list_file="kifu.txt", num=15000, save_every=500):
     positions = []
     with open(BASE_FILE_PATH+kifu_list_file, 'r') as f:
         for idx, line in enumerate(f.readlines()):
+            if idx <= SKIP: continue
             if idx % 10 == 0: print(idx)
             if idx >= num: return positions
             filepath = BASE_FILE_PATH+line.rstrip('\r\n')
             kifu = shogi.CSA.Parser.parse_file(filepath)[0]
+            
             win_color = shogi.BLACK if kifu['win'] == 'b' else shogi.WHITE
             board = shogi.Board()
             for step, move in enumerate(kifu['moves']):
@@ -32,8 +38,30 @@ def read_kifu(kifu_list_file="kifu.txt", num=10000, save_every=500):
                 if win_color != board.turn:
                     win = 1.0 - win
 
-                positions.append((mat.tolist(), move_label, win))
+                positions.append((mat, move_label, win))
                 board.push_usi(move)
+            
+            '''
+            win_color_is_black = kifu['win'] == 'b'
+            
+            mat = (init_board_black, init_hand_black, init_board_white, init_hand_white)
+            
+            for step, move in enumerate(kifu['moves']):
+                is_white = step % 2 != 0
+                black_attack, white_attack = [_.to('cpu',dtype=torch.bool) for _ in calc_attack(mat[0], mat[2])]
+                features = mats_2_features2(*[_.squeeze(0) for _ in [*mat, black_attack, white_attack]])
+                
+                move_label = usi_2_act_id(move, is_white)
+                
+                win = 0.5 + 0.5 * (((step+1) / len(kifu['moves']) * 10) ** 2 / 100)
+                if win_color_is_black == is_white:
+                    win = 1.0 - win
+
+                positions.append((features, move_label, win))
+                
+                A = get_action_mat([move_label])
+                mat = apply_action_mat(*mat, A)
+            '''
             if save_every is not None and idx % save_every == save_every-1:
                 save_features(positions)
     return positions
@@ -55,6 +83,8 @@ def mini_batch(positions, batchsize=15, cons_size=6, device=torch.device("cuda")
         torch.tensor(mini_batch_win, dtype=torch.float32, device=device).reshape((-1, 1)),
     )
     
+    
 if __name__ == '__main__':
-    positions = read_kifu()
-    save_features(positions)
+    with torch.no_grad():
+        positions = read_kifu()
+        save_features(positions)
