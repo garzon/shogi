@@ -9,8 +9,8 @@ from main import *
 
 #init_board_black, init_hand_black, init_board_white, init_hand_white = map(lambda _:_.to('cuda'), board_2_mat(shogi.Board(), False))
 
-SKIP = 10000000
-TRAIN_PICKLE = 'output/train_Suisho10Mn_psv_-{}.ckpt'.format(SKIP)
+SKIP = 0
+TRAIN_PICKLE = 'output/train_hao_-{}.ckpt'.format(SKIP)
 def save_features(positions):
     print('Saving', len(positions))
     with open(TRAIN_PICKLE, 'wb') as f:
@@ -18,38 +18,68 @@ def save_features(positions):
     print('Saving done')
     
 BASE_FILE_PATH = "D:\\github\\pydlshogi\\"
-def read_psv(psv_file="Suisho10Mn_psv.bin", num=5000000, save_every=100000):
+PSV_FILES=["Suisho10Mn_psv.bin"]
+PSV_FILES=['kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=000.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=001.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=002.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=004.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=005.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=007.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=009.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=010.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=014.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=015.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=017.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=019.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=024.bin',
+'kifus/hao/kifu.tag=train.depth=9.num_positions=1000000000.start_time=1695340981.thread_index=032.bin']
+def read_psv(psv_files=PSV_FILES, num=5000000, save_every=100000, skip=SKIP):
     positions = []
-    psfens = numpy.fromfile(BASE_FILE_PATH+psv_file, dtype=cshogi.PackedSfenValue)
-    board = cshogi.Board()
-    
-    last_gameStep = 0
-    last_gamePly = 0
-    for idx in range(SKIP, len(psfens)):
-        if idx % 1000 == 0: print(idx)
-        if idx-SKIP >= num: return positions
+    for psv_file in psv_files:
+        print('Reading file:', psv_file)
+        psfens = numpy.fromfile(BASE_FILE_PATH+psv_file, dtype=cshogi.PackedSfenValue)
         
-        win_color = cshogi.BLACK if psfens[idx]['game_result'] == 0 else shogi.WHITE
-        
-        board.set_psfen(psfens[idx]['sfen'])
-        mat = cboard_2_features2(board, board.turn == shogi.WHITE)
-        
-        move = cshogi.move_to_usi(cshogi.move16_from_psv(psfens[idx]['move']))
-        move_label = usi_2_act_id(move, board.turn == shogi.WHITE)
-        
-        if psfens[idx]['gamePly'] > last_gamePly:
-            last_gameStep = psfens[idx]['gamePly']
-        last_gamePly = psfens[idx]['gamePly']
-        
-        win = (min(3000, max(-3000, psfens[idx]['score']))+3000.0)/6000.0
-
-        positions.append((mat, move_label, win))
-
-        if save_every is not None and idx % save_every == save_every-1:
-            save_features(positions)
+        f_idx = skip
+        while f_idx < len(psfens):
+            if len(positions) % 10000 == 0:
+                print('Parsing', f_idx, '/', len(psfens), '. Total', len(positions))
+            if len(positions) >= num: return positions
+            
+            features = gen_features_for_psfen_at(psfens, f_idx)
+            if features is not None:
+                positions.append(features)
+            if save_every is not None and len(positions) % save_every == save_every-1:
+                save_features(positions)
+            
+            f_idx += 1
+        if skip != 0:
+            skip -= len(psfens)
+            skip = max(0, skip)
+            print('Remaining skip:', skip)
+        print('Finished', psv_file, '@', f_idx, '/', len(psfens))
     return positions
+    
+def gen_features_for_psfen_at(psfens, idx):
+    step = psfens[idx]['gamePly']
+    if step <= 30:
+        step_percentage = step/100.0
+        if random.random() > poss_to_drop(step_percentage):
+            return None
 
-BASE_FILE_PATH = "D:\\github\\pydlshogi\\"
+    win_color = cshogi.BLACK if psfens[idx]['game_result'] == 0 else shogi.WHITE
+    
+    board = cshogi.Board()
+    board.set_psfen(psfens[idx]['sfen'])
+    mat = cboard_2_features2(board, board.turn == shogi.WHITE)
+    
+    move = cshogi.move_to_usi(cshogi.move16_from_psv(psfens[idx]['move']))
+    move_label = usi_2_act_id(move, board.turn == shogi.WHITE)
+    
+    win = (min(3000, max(-3000, psfens[idx]['score']))+3000.0)/6000.0
+
+    return (mat, move_label, win)
+
+
 def read_kifu(kifu_list_file="kifu.txt", num=30000, save_every=500):
     positions = []
     with open(BASE_FILE_PATH+kifu_list_file, 'r') as f:
