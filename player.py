@@ -78,6 +78,8 @@ class ValuePlayer(PolicyPlayer):
         if self.board.is_game_over():
             print('bestmove resign')
             return
+            
+        if self.board.move_number < 50: return PolicyPlayer.go(self)
 
         x = boards_2_features([self.board], self.board.turn == shogi.WHITE)#, func=board_2_features)
 
@@ -107,7 +109,7 @@ if __name__=='__main__':
     from pydlshogi.usi.usi import *
 
     try:
-        player = ValuePlayer()
+        player = PolicyPlayer()
         usi(player)
     except Exception as e:
         print('info string', traceback.format_exc().replace('\n', '').replace('\r', ''))

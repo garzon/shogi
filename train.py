@@ -16,23 +16,17 @@ ch = 192
 fcl = 256
 latest_features_dim = FEATURES_DIM
 
-e_max_policy_loss = 3.0
+e_max_policy_loss = 1.5
 e_value = 5.0
-e_value_miss = 10.0
+#e_value_miss = 2.0
 #e_policy_illegal = 8.0
 
-MODEL1_PATH = "output/model1-11"
-MODEL2_PATH = "output/model2-11"
+MODEL1_PATH = "output/model1-12.900000"
+MODEL2_PATH = "output/model2-12.900000"
 TRAINING_DATA_PATH = [
-    'output/train_list_feature3-5000.ckpt',
-    'output/train_list_feature3-4500.ckpt',
-    'output/train_list_feature3-3000.ckpt',
-    #'output/train_Suisho10Mn_psv_-0.ckpt',
-    #'output/train_Suisho10Mn_psv_-450000.ckpt',
+    'output/train_Suisho10Mn_psv_-10000000.ckpt',
+    'output/train_Suisho10Mn_psv_-5m725m.ckpt',
 ]
-#TRAINING_DATA_PATH = [
-#    'output/train_Suisho10Mn_psv_-0.ckpt',
-#]
 
 class Block(nn.Module):
     def __init__(self):
@@ -142,45 +136,27 @@ if __name__ == '__main__':
         policy_outputs, value_outputs = model2(x)
         policy_loss = torch.mean(policy_loss_fn2(policy_outputs, policy_labels) * e_policy_loss)
         value_loss = e_value * value_loss_fn1(value_outputs, value_labels)
-        value_outputs = F.sigmoid(value_outputs)
         
-
+        '''
+        value_outputs = F.sigmoid(value_outputs)
         with torch.no_grad():
             board_black, hand_black, board_white, hand_white, _, _2 = map(lambda _:(_!=0).to('cpu', dtype=torch.bool), torch.split(x.reshape(x.shape[0], x.shape[1], 9*9), [k_dim, K_dim-k_dim, k_dim, K_dim-k_dim, k_dim, k_dim], dim=1))
             fake_is_white = False
             
             legal_mats = calc_legal_moves_mat(board_black, hand_black, board_white)
             bestmoves_label, legal_labelss = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, fake_is_white, return_usi=False)
-
-            '''
-            policy_outputs = F.softmax(policy_outputs, dim=1)
-            legal_policy = torch.zeros(policy_outputs.shape[0], policy_outputs.shape[1], dtype=torch.float32)
-            for b in range(policy_outputs.shape[0]):
-                labels = legal_labelss[b]
-                for label in labels:
-                    legal_policy[b, label] = policy_outputs[b, label]
-            illegal_policy_loss = e_policy_illegal * value_loss_fn2(policy_outputs, legal_policy.to('cuda'))
-            '''
             
             A = get_action_mat(bestmoves_label)
             board_black, hand_black, board_white, hand_white = apply_action_mat(board_black, hand_black, board_white, hand_white, A, to_cpu=False)
             black_attack, white_attack = calc_attack(board_black, board_white)
             x2 = torch.cat(to_gpu_float32(board_black, hand_black, board_white, hand_white, black_attack, white_attack), dim=1).reshape(-1, latest_features_dim, 9, 9).contiguous()
         
-        '''
-        boards = mat_2_boards(board_black, hand_black, board_white, hand_white, fake_is_white)
-        # bestmoves_usi = get_bestmoves_from_logitss(boards, policy_outputs)
-        bestmoves_usi, legal_labelss = get_bestmoves_from_legal_mats_and_logitss(legal_mats, policy_outputs, False)
-        x2 = torch.zeros(x.shape[0], K_dim*2, 9, 9, dtype=torch.bool)
-        for i in range(len(boards)):
-            boards[i].push_usi(bestmoves_usi[i])
-        x2 = boards_2_features(boards, True)
-        '''
-        
         _, value_outputs2 = model2(x2)
         value_outputs2 = F.sigmoid(value_outputs2)
         value_miss_loss = e_value_miss * value_loss_fn3(1.0-value_outputs2, value_outputs)
-        loss2 = policy_loss + value_loss + value_miss_loss #+ illegal_policy_loss
+        '''
+        
+        loss2 = policy_loss + value_loss# + value_miss_loss #+ illegal_policy_loss
         
         optimizer2.zero_grad()
         loss2.backward()
@@ -191,10 +167,10 @@ if __name__ == '__main__':
             #print(f"Epoch {epoch + 1}, Loss2: {loss2.item()}")
             print(f"Epoch {epoch + 1}, Loss1: {loss1.item()}, Loss2: {loss2.item()}")
         
-        if epoch % 10000 == 9999:
-            print('saving @' + str(epoch))
-            torch.save(model1.state_dict(), MODEL1_PATH+"."+str(epoch))
-            torch.save(model2.state_dict(), MODEL2_PATH+"."+str(epoch))
+        if epoch % 5000 == 4999:
+            print('saving @' + str(epoch+1))
+            torch.save(model1.state_dict(), MODEL1_PATH+"."+str(epoch+1))
+            torch.save(model2.state_dict(), MODEL2_PATH+"."+str(epoch+1))
         
     torch.save(model1.state_dict(), MODEL1_PATH)
     torch.save(model2.state_dict(), MODEL2_PATH)

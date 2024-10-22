@@ -9,7 +9,7 @@ from main import *
 
 #init_board_black, init_hand_black, init_board_white, init_hand_white = map(lambda _:_.to('cuda'), board_2_mat(shogi.Board(), False))
 
-SKIP = 450000
+SKIP = 10000000
 TRAIN_PICKLE = 'output/train_Suisho10Mn_psv_-{}.ckpt'.format(SKIP)
 def save_features(positions):
     print('Saving', len(positions))
@@ -18,7 +18,7 @@ def save_features(positions):
     print('Saving done')
     
 BASE_FILE_PATH = "D:\\github\\pydlshogi\\"
-def read_psv(psv_file="Suisho10Mn_psv.bin", num=3000000, save_every=50000):
+def read_psv(psv_file="Suisho10Mn_psv.bin", num=5000000, save_every=100000):
     positions = []
     psfens = numpy.fromfile(BASE_FILE_PATH+psv_file, dtype=cshogi.PackedSfenValue)
     board = cshogi.Board()
@@ -41,7 +41,7 @@ def read_psv(psv_file="Suisho10Mn_psv.bin", num=3000000, save_every=50000):
             last_gameStep = psfens[idx]['gamePly']
         last_gamePly = psfens[idx]['gamePly']
         
-        win = (min(2000, max(-2000, psfens[idx]['score']))+2000.0)/4000.0
+        win = (min(3000, max(-3000, psfens[idx]['score']))+3000.0)/6000.0
 
         positions.append((mat, move_label, win))
 
