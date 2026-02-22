@@ -17,7 +17,7 @@
 | --- | --- | --- | --- |
 | B | `Batch` | 任意 | バッチサイズ。並列にシミュレーションする局面の数。 |
 | K | `K_dim` | 21 | **全駒種**。盤上の駒14種（歩=0〜龍=13）＋ 持ち駒7種（歩=14〜飛=20）。 |
-| k | `k_dim` | 14 | **盤上の駒種のみ**。大文字の  に内包される先頭の14要素。主に盤上の遮蔽や利きの計算に使用します。 |
+| k | `k_dim` | 14 | **盤上の駒種のみ**。大文字の$K$に内包される先頭の14要素。主に盤上の遮蔽や利きの計算に使用します。 |
 | F | `F_dim` | 81 | 移動元（**F**rom）のマス。 |
 | T | `T_dim` | 81 | 移動先（**T**o）のマス。 |
 | P | `P_dim` | 81 | 盤面上の任意のマス（**P**osition）。主に「経路上の障害物」を判定する中継次元として用います。 |
@@ -159,9 +159,14 @@ a_bougai = torch.zeros(k_dim, F_dim, T_dim, P_dim, dtype=torch.bool)
 # 例: 飛車の遮蔽定義
 for p_x in range(9):
     for p_y in range(9):
+        for f_x in range(p_x):
+            for t_x in range(p_x+1, 9):
+                # f_x (移動元) と t_x (移動先) の間に p_x (障害物) がある場合
+                a_bougai[ROOK, f_x*9+p_y, t_x*9+p_y, p_x*9+p_y] = True
+                a_bougai[ROOK, t_x*9+p_y, f_x*9+p_y, p_x*9+p_y] = True
         for f_y in range(p_y):
             for t_y in range(p_y+1, 9):
-                # f_x (移動元) と t_x (移動先) の間に p_x (障害物) がある場合
+                # f_y (移動元) と t_y (移動先) の間に p_y (障害物) がある場合
                 a_bougai[ROOK, p_x*9+f_y, p_x*9+t_y, p_x*9+p_y] = True
                 a_bougai[ROOK, p_x*9+t_y, p_x*9+f_y, p_x*9+p_y] = True
 # (※角や香車についても同様の直線を定義)
@@ -238,7 +243,7 @@ oute = torch.permute(oute, (1, 0, 2, 3)).contiguous().to('cuda')
 
 詳しいコードは[ここ](https://github.com/garzon/shogi/blob/main/main.py#L76)に参照
 
-### 2.6 合法手の最終決定
+### 2.6 合法手の最終決定（`calc_legal_moves_mat()`）
 
 これまで求めたすべての反則フラグ（`jibougai`、`uchibougai`、`nifu`、`bougai`、`oute`）を `total_forbidden` として論理和（加算）で統合し、初期の基礎移動候補`ok_to_move`から除外します。
 
@@ -301,7 +306,7 @@ a_add_piece[:] = torch.eye(P_dim, dtype=torch.bool)
 a_add_piece = torch.permute(a_add_piece, (1, 0, 2)).contiguous()
 ```
 
-**【局面の推演（状態遷移）】**
+**【局面の推演（状態遷移）`apply_action_mat()`】**
 
 ```python
 # 選択された行動 A からマスクを作成(一応非合法手は~bougai_Kdimで削除)
